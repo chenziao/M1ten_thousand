@@ -5,7 +5,7 @@ import random
 import csv
 import numpy as np
 import time
-from console_progressbar import ProgressBar
+# from console_progressbar import ProgressBar
 
 
 #################################################################
@@ -17,7 +17,7 @@ def lognorm_fr_list(n,m,s):
     std = np.sqrt(np.log((s/m)**2 + 1))
     ranlog= np.random.lognormal(mean,std)
     #print(ranlog)
-    return [ranlog for i in range(n)]
+    return ranlog
 
 #def build_input(t_sim, numPN_A = 640, numPN_C=260, numBask = 100):
 def build_poisson_input(population,node_ids,mean,std,output_h5,tstart,tend,t_sim=15000):
@@ -194,9 +194,9 @@ def coreChoice(virt,CP_nodes,CS_nodes,CP_id,CS_id):
      
 
 def build_input(t_sim, num_thal = 800, num_CS=200, num_CTH = 200, num_CC=200, num_FSI=120, num_LTS=80, scale=1):
-    pb = ProgressBar(total=100, decimals=3, length=50, fill='X', zfill='-')
+    # pb = ProgressBar(total=100, decimals=3, length=50, fill='X', zfill='-')
     print("Building all input spike trains")
-    pb.print_progress_bar(2)
+    # pb.print_progress_bar(2)
     
     # Get nodes                   
     Int_nodes=Intnodes("config.json")
@@ -205,7 +205,7 @@ def build_input(t_sim, num_thal = 800, num_CS=200, num_CTH = 200, num_CC=200, nu
     num_thal = len(Thal_nodes)
     CP_nodes, CS_nodes, FSI_nodes, LTS_nodes, CP_id, CS_id, FSI_id, LTS_id = populations("config.json")
     #print(CP_id)
-    pb.print_progress_bar(10)
+    # pb.print_progress_bar(10)
     #print(CP_nodes)
     # Get the thalamic node id that will connect to CP vs CS cells
     # CP_nodes = []
@@ -228,7 +228,7 @@ def build_input(t_sim, num_thal = 800, num_CS=200, num_CTH = 200, num_CC=200, nu
     #print(len(CP_nodes))
     Thal = coreChoice(Thal_nodes, CP_nodes, CS_nodes, CP_id, CS_id)
     num_chosen = len(Thal[0]) + len(Thal[1]) + len(Thal[2]) + len(Thal[3]) + len(Thal[4]) + len(Thal[5]) + len(Thal[6]) + len(Thal[7])
-    pb.print_progress_bar(20)
+    # pb.print_progress_bar(20)
     assemblies = 8
     with open("./input/Assembly_ids.csv", "w", newline="") as f:
         writer = csv.writer(f)
@@ -243,7 +243,7 @@ def build_input(t_sim, num_thal = 800, num_CS=200, num_CTH = 200, num_CC=200, nu
             psgs.add(node_ids=Thal[j],  
             firing_rate=lognorm_fr_list(num_group*scale,50,0),
             times=(time1, time2)) 
-            pb.print_progress_bar(30+2*i)
+            # pb.print_progress_bar(30+2*i)
     # Long burst input for 1000 ms followed by 500 ms silence
     
     psgl = PoissonSpikeGenerator(population='thalamus') 
@@ -253,27 +253,27 @@ def build_input(t_sim, num_thal = 800, num_CS=200, num_CTH = 200, num_CC=200, nu
         psgl.add(node_ids=Thal[i],  
             firing_rate=lognorm_fr_list(num_group*scale,50,0),
             times=(time1, time2))
-        pb.print_progress_bar(50+2*i)   
+        # pb.print_progress_bar(50+2*i)   
     #print(len(Thal_nodes))
     # Thalamus test constant 50 Hz input
     psgc = PoissonSpikeGenerator(population='thalamus')
     psgc.add(node_ids=Thal_nodes,  
     firing_rate=lognorm_fr_list(num_thal*scale,50,0),
     times=(0, 10))
-    pb.print_progress_bar(70)  
+    # pb.print_progress_bar(70)  
     
     # Thalamus baseline
     psgb = PoissonSpikeGenerator(population='thalamus')
     psgb.add(node_ids=Thal_nodes,  
     firing_rate=lognorm_fr_list(num_thal*scale,2,0),
     times=(0, 10))  
-    pb.print_progress_bar(80)
+    # pb.print_progress_bar(80)
     # Interneuron baseline
     psgi = PoissonSpikeGenerator(population='Intbase')
     psgi.add(node_ids=Int_nodes,  
     firing_rate=lognorm_fr_list(num_int*scale,2,0),
     times=(0, 10))
-    pb.print_progress_bar(90)
+    # pb.print_progress_bar(90)
     
     psgc.to_sonata('./input/thalamus_const.h5')
     psgb.to_sonata('./input/thalamus_base.h5')
@@ -341,13 +341,13 @@ def build_input(t_sim, num_thal = 800, num_CS=200, num_CTH = 200, num_CC=200, nu
     firing_rate=lognorm_fr_list(num_LTS*scale,1.5,1),
     times=(0, 11.5))
     psgl.to_sonata('./input/LTS_shell_long.h5')
-    pb.print_progress_bar(100)
+    # pb.print_progress_bar(100)
     print('Number of Thal nodes activated: '+ str(num_chosen))
     print("Done")
 
 
 if __name__ == '__main__':
     if __file__ != sys.argv[-1]:
-        build_input(int(sys.argv[-1]))
+        build_input(sys.argv[-1])
     else:
-        build_input(10)
+        build_input(10000)
