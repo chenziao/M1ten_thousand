@@ -3,6 +3,7 @@ from bmtk.simulator import bionet
 import numpy as np
 import synapses
 import warnings
+import corebmtk
 #from bmtools.cli.plugins.util import util
 from neuron import h
 
@@ -54,7 +55,8 @@ def run(config_file):
     add_weight_function(gaussianBL)
 
 
-    conf = bionet.Config.from_json(config_file, validate=True)
+    # conf = bionet.Config.from_json(config_file, validate=True)
+    conf = corebmtk.Config.from_json(config_file, validate=True)
     conf.build_env()
 
     graph = bionet.BioNetwork.from_config(conf)
@@ -67,7 +69,8 @@ def run(config_file):
     for node in pop.get_nodes():
         node._node._node_type_props['morphology'] = node.model_template[1]
 
-    sim = bionet.BioSimulator.from_config(conf, network=graph)
+    # sim = bionet.BioSimulator.from_config(conf, network=graph)
+    sim = corebmtk.CoreBioSimulator.from_config(conf, network=graph, gpu=False)
     
     # This is my attempt to record the point conductance current only
     #CP_nodes, CS_nodes, FSI_nodes, LTS_nodes=populations(config_file)
