@@ -20,8 +20,8 @@ begintemplate CP_Cell
 	objref tlist, area_vec
 	public tlist, area_vec
 
-	objref noise_exc, noise_inh, cclA
-	objref noiseRandObj_exc, noiseRandObj_inh
+	objref noise, cclA
+	objref noiseRandObj, noiseRandObj
 
 	public all, somatic, basal, apical, axonal
         objref all, somatic,axonal,basal,apical
@@ -193,38 +193,26 @@ begintemplate CP_Cell
 	}//end init
 
 	proc insert_mechs(){
-		r = $1
+		randseed = $1
 		soma[0]{
-                        noiseRandObj_exc=new Random()
-                        noiseRandObj_exc.Random123(123)
-                        noiseRandObj_exc.normal(0,1)
+                        noiseRandObj=new Random()
+                        noiseRandObj.Random123(randseed)
+                        noiseRandObj.normal(0,1)
 
-                        noise_exc = new Gfluct2_exc(0.5)
+                        noise = new Gfluct2(0.5)
                         //0.0032 raise 
-                        noise_exc.g_e0 = 0.002
-                        noise_exc.g_i0 = 0
-                        noise_exc.std_e = 0.001
-                        noise_exc.std_i = 0
+                        noise.g_e0 = 0.002
+                        noise.g_i0 = 0.021
+                        noise.std_e = 0.001
+                        noise.std_i = 0.008
+						// noise.tau_e = 10.0
+						// noise.tau_i = 30.0
 
-                        //noise_exc.g_e0 = 0.0032//0.0032
-                        //noise_exc.std_e = 0.003//0.003
-                        noise_exc.setRandObj(noiseRandObj_exc)
-
-                        noiseRandObj_inh=new Random()
-                        noiseRandObj_inh.Random123(123)
-                        noiseRandObj_inh.normal(0,1)
-
-                        noise_inh = new Gfluct2_inh(0.5)
-
-                        noise_inh.g_e0 = 0
-                        noise_inh.g_i0 = 0.021
-                        noise_inh.std_e = 0
-                        noise_inh.std_i = 0.008
-
-                        //noise_inh.g_e0 = 0.021
-                        //noise_inh.std_e = 0.008
-                        noise_inh.setRandObj(noiseRandObj_inh)
-
+                        //noise.g_e0 = 0.0032//0.0032
+                        //noise.std_e = 0.003//0.003
+                        //noise.g_e0 = 0.021
+                        //noise.std_e = 0.008
+                        noise.setRandObj(noiseRandObj)
 		}
 	}
 
@@ -260,8 +248,8 @@ begintemplate CS_Cell
 	objref tlist, area_vec
 	public tlist, area_vec
 
-	objref noise_exc, noise_inh, cclA
-	objref noiseRandObj_exc, noiseRandObj_inh
+	objref noise, cclA
+	objref noiseRandObj, noiseRandObj
 
 	public all, somatic, basal, apical, axonal
         objref all, somatic,axonal,basal,apical
@@ -432,38 +420,25 @@ begintemplate CS_Cell
 	}//end init
 
 	proc insert_mechs(){
-		r = $1
+		randseed = $1
 		soma[0]{
-                        noiseRandObj_exc=new Random()
-                        noiseRandObj_exc.Random123(123)
-                        noiseRandObj_exc.normal(0,1)
+                        noiseRandObj=new Random()
+                        noiseRandObj.Random123(randseed)
+                        noiseRandObj.normal(0,1)
 
-                        noise_exc = new Gfluct2_exc(0.5)
+                        noise = new Gfluct2(0.5)
+                        noise.g_e0 = 0.002
+                        noise.g_i0 = 0.021
+                        noise.std_e = 0.001
+                        noise.std_i = 0.008
+						// noise.tau_e = 10.0
+						// noise.tau_i = 30.0
 
-                        noise_exc.g_e0 = 0.002
-                        noise_exc.g_i0 = 0
-                        noise_exc.std_e = 0.001
-                        noise_exc.std_i = 0
-
-                        //noise_exc.g_e0 = 0.0032//0.0032
-                        //noise_exc.std_e = 0.003//0.003
-                        noise_exc.setRandObj(noiseRandObj_exc)
-
-                        noiseRandObj_inh=new Random()
-                        noiseRandObj_inh.Random123(123)
-                        noiseRandObj_inh.normal(0,1)
-
-                        noise_inh = new Gfluct2_inh(0.5)
-
-                        noise_inh.g_e0 = 0
-                        noise_inh.g_i0 = 0.021
-                        noise_inh.std_e = 0
-                        noise_inh.std_i = 0.008
-
-                        //noise_inh.g_e0 = 0.021
-                        //noise_inh.std_e = 0.008
-                        noise_inh.setRandObj(noiseRandObj_inh)
-
+                        //noise.g_e0 = 0.0032//0.0032
+                        //noise.std_e = 0.003//0.003
+                        //noise.g_e0 = 0.021
+                        //noise.std_e = 0.008
+                        noise.setRandObj(noiseRandObj)
 		}
 	}
 
@@ -490,9 +465,9 @@ begintemplate FSI_Cell
 	public tlist, area_vec
 	external tstop
 
-	public noise_exc, noise_inh
-	objref noise_exc, noise_inh, cclA
-	objref noiseRandObj_exc, noiseRandObj_inh
+	public noise
+	objref noise, cclA
+	objref noiseRandObj, noiseRandObj
 
 	public all, somatic, basal, apical, axonal
 	objref all, somatic,axonal,basal,apical
@@ -586,39 +561,25 @@ begintemplate FSI_Cell
 	}//end init
 
 	proc insert_mechs(){
-		r = $1
+		randseed = $1
 		soma[0]{
+			noiseRandObj=new Random()
+			noiseRandObj.Random123(randseed)
+			noiseRandObj.normal(0,1)
 
-			noiseRandObj_exc=new Random()
-			noiseRandObj_exc.Random123(123)
-			noiseRandObj_exc.normal(0,1)
+			soma noise = new Gfluct2(0.5)
+			noise.g_e0 = 0.00121
+			noise.g_i0 = 0.00573
+			noise.std_e = 0.00012
+			noise.std_i = 0.00264
+			// noise.tau_e = 10.0
+			// noise.tau_i = 30.0
 
-			soma noise_exc = new Gfluct2_exc(0.5)
-
-			noise_exc.g_e0 = 0.00121
-			noise_exc.g_i0 = 0
-			noise_exc.std_e = 0.00012
-			noise_exc.std_i = 0
-
-			//noise_exc.g_e0 = 0.0032//0.0032
-			//noise_exc.std_e = 0.003//0.003
-			noise_exc.setRandObj(noiseRandObj_exc)
-
-			noiseRandObj_inh=new Random()
-			noiseRandObj_inh.Random123(123)
-			noiseRandObj_inh.normal(0,1)
-
-			noise_inh = new Gfluct2_inh(0.5)
-
-			noise_inh.g_e0 = 0
-			noise_inh.g_i0 = 0.00573
-			noise_inh.std_e = 0
-			noise_inh.std_i = 0.00264
-
-			//noise_inh.g_e0 = 0.021
-			//noise_inh.std_e = 0.008
-			noise_inh.setRandObj(noiseRandObj_inh)
-		
+			//noise.g_e0 = 0.0032//0.0032
+			//noise.std_e = 0.003//0.003
+			//noise.g_e0 = 0.021
+			//noise.std_e = 0.008
+			noise.setRandObj(noiseRandObj)
 		}
 	}
 	
@@ -652,8 +613,8 @@ begintemplate LTS_Cell
 	create soma[NumSoma]
 	create dend[NumDend]
 	
-        objref noise_exc, noise_inh
-        objref noiseRandObj_exc, noiseRandObj_inh
+        objref noise
+        objref noiseRandObj, noiseRandObj
 	public all, somatic, basal, apical, axonal,connect2target,drv,append_sections
 	objref all, somatic, basal, apical, axonal,drv
     public synlist,conduclist
@@ -840,37 +801,25 @@ begintemplate LTS_Cell
  }   
 
 proc insert_mechs(){
-                r = $1
+                randseed = $1
                 soma[0]{
-                        noiseRandObj_exc=new Random()
-                        noiseRandObj_exc.Random123(123)
-                        noiseRandObj_exc.normal(0,1)
+                        noiseRandObj=new Random()
+                        noiseRandObj.Random123(randseed)
+                        noiseRandObj.normal(0,1)
 
-                        noise_exc = new Gfluct2_exc(0.5)
+                        noise = new Gfluct2(0.5)
+                        noise.g_e0 = 0.000121//TB7/31/21
+                        noise.g_i0 = 0.00573
+                        noise.std_e = 0.000012
+                        noise.std_i = 0.00264
+						// noise.tau_e = 10.0
+						// noise.tau_i = 30.0
 
-                        noise_exc.g_e0 = 0.000121//TB7/31/21
-                        noise_exc.g_i0 = 0
-                        noise_exc.std_e = 0.000012
-                        noise_exc.std_i = 0
-
-                        //noise_exc.g_e0 = 0.0032//0.0032
-                        //noise_exc.std_e = 0.003//0.003
-                        noise_exc.setRandObj(noiseRandObj_exc)
-
-                        noiseRandObj_inh=new Random()
-                        noiseRandObj_inh.Random123(123)
-                        noiseRandObj_inh.normal(0,1)
-
-                        noise_inh = new Gfluct2_inh(0.5)
-
-                        noise_inh.g_e0 = 0
-                        noise_inh.g_i0 = 0.00573
-                        noise_inh.std_e = 0
-                        noise_inh.std_i = 0.00264
-
-                        //noise_inh.g_e0 = 0.021
-                        //noise_inh.std_e = 0.008
-                        noise_inh.setRandObj(noiseRandObj_inh)
+                        //noise.g_e0 = 0.0032//0.0032
+                        //noise.std_e = 0.003//0.003
+                        //noise.g_e0 = 0.021
+                        //noise.std_e = 0.008
+                        noise.setRandObj(noiseRandObj)
                 }
 }
 

@@ -239,7 +239,7 @@ def build_input(t_sim, num_thal = 800, num_CS=200, num_CTH = 200, num_CC=200, nu
     for i in range(8):
         for j in range(assemblies):
             time1=i*1.5 + j*0.125
-            time2=i*1.5 + j*0.125 +0.125
+            time2=i*1.5 + j*0.125 + 0.125
             psgs.add(node_ids=Thal[j],  
             firing_rate=lognorm_fr_list(num_group*scale,50,0),
             times=(time1, time2)) 

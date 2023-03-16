@@ -14,6 +14,8 @@ from os.path import exists
 from bmtk.analyzer.spike_trains import plot_raster
 import os, sys
 
+CONFIG = "config.json"
+
 def raster(spikes_df,node_set,skip_ms=0,ax=None):
     spikes_df = spikes_df[spikes_df['timestamps']>skip_ms] 
     for node in node_set:
@@ -159,7 +161,7 @@ def gaussian(x,mean,std,pmax):
     return y 
                 
 
-def plot(choose):
+def plot(choose, file=None, config=None, figsize=(6.4, 4.8)):
     #CS_nodes=list(range(0,10))+list(range(128,148))+list(range(276,386))+list(range(619,709))
     #CP_nodes=list(range(266,286))+list(range(429,628))
     #FSI_nodes=list(range(88,122))+list(range(226,260))+list(range(389,422))+list(range(720,754))+list(range(950,984))
@@ -167,12 +169,15 @@ def plot(choose):
     
     #CC_nodes=list(range(10,98))+list(range(138,236))+list(range(381,398))+list(range(704,729))
     #CTH_nodes=list(range(376,391))+list(range(699,714))+list(range(760,960))
+    global CONFIG
+    if file is None:
+        file = 'output/spikes.h5'
+    if config is not None:
+        CONFIG = config
 
-
-
-    if choose=='1':
+    if choose==1:
         print("plotting spike raster")
-        [CP_nodes, CS_nodes, FSI_nodes, LTS_nodes] = populations("config.json")
+        [CP_nodes, CS_nodes, FSI_nodes, LTS_nodes] = populations(CONFIG)
         node_set = [
             {"name":"CP","ids":CP_nodes,"color":"blue"},
             {"name":"CS","ids":CS_nodes,"color":"red"},
@@ -180,88 +185,77 @@ def plot(choose):
             {"name":"LTS","ids":LTS_nodes,"color":"purple"}
         ]
 
-        if exists('output/spikes_short.h5'):
-            spikes_location = 'output/spikes_short.h5'
-        elif exists('output/spikes_long.h5'):
-            spikes_location = 'output/spikes_long.h5'
-        elif exists('output/spikes_baseline.h5'):
-            spikes_location = 'output/spikes_baseline.h5'
-        f = h5py.File(spikes_location)
+        f = h5py.File(file)
         spikes_df = pd.DataFrame({'node_ids':f['spikes']['cortex']['node_ids'],'timestamps':f['spikes']['cortex']['timestamps']}) 
 
         skip_ms=0
         end_ms = 4000
-        fig, ax = plt.subplots(1,1,figsize=(6,5))#6.4,4.8 default
-        #_ = plot_raster(config_file='config.json',group_by='pop_name',group_excludes=['CC','CTH'])
+        fig, ax = plt.subplots(1, 1, figsize=figsize)
+        #_ = plot_raster(config_file=CONFIG,group_by='pop_name',group_excludes=['CC','CTH'])
         raster(spikes_df,node_set,ax=ax, skip_ms=skip_ms)
         plt.show()
-    elif choose=='2':
+        return spikes_df
+    elif choose==2:
         print("plotting firing rates")
-        #[CP_nodes, CS_nodes, FSI_nodes, LTS_nodes] = populations("config.json")
+        #[CP_nodes, CS_nodes, FSI_nodes, LTS_nodes] = populations(CONFIG)
         #node_set_total = [
             #{"name":"CP","ids":CP_nodes,"color":"blue"},
             #{"name":"CS","ids":CS_nodes,"color":"red"},
             #{"name":"FSI","ids":FSI_nodes,"color":"green"},
             #{"name":"LTS","ids":LTS_nodes,"color":"purple"}
         #]
-        [cCP_nodes, cCS_nodes, cFSI_nodes, cLTS_nodes] = core_populations("config.json")
+        [cCP_nodes, cCS_nodes, cFSI_nodes, cLTS_nodes] = core_populations(CONFIG)
         node_set_core = [
             {"name":"CP","ids":cCP_nodes,"color":"blue"},
             {"name":"CS","ids":cCS_nodes,"color":"red"},
             {"name":"FSI","ids":cFSI_nodes,"color":"green"},
             {"name":"LTS","ids":cLTS_nodes,"color":"purple"}
         ]
-        [iCP_nodes, iCS_nodes, iFSI_nodes, iLTS_nodes] = intermediate_populations("config.json")
+        [iCP_nodes, iCS_nodes, iFSI_nodes, iLTS_nodes] = intermediate_populations(CONFIG)
         node_set_intermediate = [
             {"name":"CP","ids":iCP_nodes,"color":"blue"},
             {"name":"CS","ids":iCS_nodes,"color":"red"},
             {"name":"FSI","ids":iFSI_nodes,"color":"green"},
             {"name":"LTS","ids":iLTS_nodes,"color":"purple"}
         ]
-        
 
-        if exists('output/spikes_short.h5'):
-            spikes_location = 'output/spikes_short.h5'
-        elif exists('output/spikes_long.h5'):
-            spikes_location = 'output/spikes_long.h5'
-        elif exists('output/spikes_baseline.h5'):
-            spikes_location = 'output/spikes_baseline.h5'
-        f = h5py.File(spikes_location)
+        f = h5py.File(file)
         spikes_df = pd.DataFrame({'node_ids':f['spikes']['cortex']['node_ids'],'timestamps':f['spikes']['cortex']['timestamps']}) 
 
         skip_ms=0
         end_ms = 4000
-        fig, ax = plt.subplots(1,2,figsize=(12,5))#6.4,4.8 default
-        #_ = plot_rates_boxplot(config_file='config.json',group_by='pop_name',group_excludes=['CC','CTH'])
+        fig, ax = plt.subplots(1, 2, figsize=figsize)
+        #_ = plot_rates_boxplot(config_file=CONFIG,group_by='pop_name',group_excludes=['CC','CTH'])
         #spike_frequency_histogram(spikes_df,node_set_total,end_ms,ax=ax[0],skip_ms=skip_ms)
         spike_frequency_histogram(spikes_df,node_set_core,end_ms,ax=ax[0],skip_ms=skip_ms)
         ax[0].set_title("Core Rates")
         spike_frequency_histogram(spikes_df,node_set_intermediate,end_ms,ax=ax[1],skip_ms=skip_ms)
         ax[1].set_title("Intermediate Rates")
         plt.show()
-    elif choose=='3':
+        return spikes_df
+    elif choose==3:
         print("plotting voltage trace")
-        _ = plot_traces(config_file='config.json', report_name='v_report',group_by='pop_name',group_excludes=['CP','CS','LTS','CC','CTH'], average=True)
-    elif choose=='4':
+        _ = plot_traces(config_file=CONFIG, report_name='v_report', group_by='pop_name', group_excludes=['CP','CS','LTS','CC','CTH'], average=True)
+    elif choose==4:
         print("plotting syn report")
         _ = plot_traces(report_path='./output/Gfluct_exc.h5')
         #./output/PN2FSI_nmda_report.h5
         #./output/PN2FSI_ampa_report.h5
         #./output/Gfluct_exc.h5
         #./output/Gfluct_inh.h5
-    elif choose=='5':
+    elif choose==5:
         x=range(-300, 300)
         gaus= np.vectorize(gaussian)
         y=gaus(x,0,124.62,0.05)
         plt.plot(x,y)
         plt.show()
     else:
-        return
+        print('ID not identified.')
 
 if __name__ == '__main__':
-    if sys.argv[1]:
-        plot(choose=sys.argv[1])
-        #intermediate_populations('config.json')
+    if len(sys.argv) > 1:
+        plot(choose=int(sys.argv[1]), file=sys.argv[2] if len(sys.argv) > 2 else None)
+        #intermediate_populations(CONFIG)
     else:
-        #intermediate_populations('config.json')
+        #intermediate_populations(CONFIG)
         plot(choose=1)

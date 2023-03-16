@@ -1,4 +1,4 @@
 {
   "network": "circuit_config.json",
-  "simulation": "simulation_config_short.json"
+  "simulation": "simulation_config_baseline.json"
 }
