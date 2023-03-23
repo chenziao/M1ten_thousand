@@ -16,99 +16,88 @@ np.random.seed(123412)
 network_dir = 'network'
 t_sim = 11500.0
 dt = 0.05
-scale = 10
 
-x_start, x_end = 0,1000
-y_start, y_end = 0,1000
-z_start, z_end = 0,1000
+num_cells = 10000
+column_width, column_height = 1000., 1000.
+x_start, x_end = -column_width/2, column_width/2
+y_start, y_end = -column_width/2, column_width/2
+z_start, z_end = 0., column_height
+z_5A = 500.
+
+min_conn_dist = 0.0 # Distance constraint for all cells
+max_conn_dist = 300.0   # 300.0 #9999. 
 
 # When enabled, a shell of virtual cells will be created around the core network.
 edge_effects = True
 
-# Number of cells in each population. Following 80/20 E/I equal on CP-CS and 60% FSI to 40% LTS for Interneurons
-# Densities by cell proportion unless otherwise specified: CP: 20%  CS: 20% CTH: 20% CC: 20% FSI: 12% LTS: 8%
-num_cells = 1000 * scale
-num_CP = int(num_cells * 0.4)    # Corticopontine
-num_CS = int(num_cells * 0.4)   # Corticostriatal
-#num_CTH = int(num_cells * 0.2)  # Corticothalamic
-#num_CC = int(num_cells * 0.2)   # Corticocortical
-num_FSI = int(num_cells * 0.12)   # Fast Spiking Interneuron
-num_LTS = int(num_cells * 0.08)    # Low Threshold Spiker
-
 ###################################################################################
 ####################### Cell Proportions and Positions ############################
+def num_prop(ratio, N):
+    """Calculate numbers of total N in proportion to ratio"""
+    ratio = np.asarray(ratio)
+    p = np.cumsum(np.insert(ratio.ravel(), 0, 0)) # cumulative proportion
+    return np.diff(np.round(N / p[-1] * p).astype(int)).reshape(ratio.shape)
 
-# arrays for cell location csv
-cell_name = []
-cell_x = []
-cell_y = []
-cell_z = []
+# Number of cells in each population. Following 80/20 E/I equal on CP-CS and 60% FSI to 40% LTS for Interneurons
+# Densities by cell proportion unless otherwise specified: CP: 20%  CS: 20% CTH: 20% CC: 20% FSI: 12% LTS: 8%
+# Corticopontine, Corticostriatal, Fast Spiking Interneuron, Low Threshold Spiker
+num_CP, num_CS, num_FSI, num_LTS = num_prop([40, 40, 12, 8], num_cells)
+# num_CTH = int(num_cells * 0.2)  # Corticothalamic
+# num_CC = int(num_cells * 0.2)   # Corticocortical
+
 # amount of cells per layer
+numCP_in5A, numCP_in5B = num_prop([5, 95], num_CP) # CP cells are basically only in layer 5B and nowhere else. 
+numCS_in5A, numCS_in5B = num_prop([95, 5], num_CS) # CS cells span top of 5B to middle of 2/3 
 
-numCP_in5A = int(round(num_CP* 0.05))
-numCP_in5B = int(round(num_CP* 0.95))  #CP cells are basically only in layer 5B and nowhere else. 
-
-
-numCS_in5A = int(round(num_CS*0.95))    #CS cells span top of 5B to middle of 2/3 
-numCS_in5B = int(round(num_CS*0.05))
-
-
-numFSI_in5A = int(round(num_FSI*0.5))  # Even distribution of FSI cells between Layers 5A and 5B
-numFSI_in5B = int(round(num_FSI*0.5))
-
-
-numLTS_in5A = int(round(num_LTS*0.5))  # Even distribution of LTS cells between Layers 5A and 5B
-numLTS_in5B = int(round(num_LTS*0.5))
-
-
-min_conn_dist = 0.0 
-max_conn_dist = 300.0 #300.0 #9999.9# Distance constraint for all cells
+numFSI_in5A, numFSI_in5B = num_prop([1, 1], num_FSI) # Even distribution of FSI cells between Layers 5A and 5B
+numLTS_in5A, numLTS_in5B = num_prop([1, 1], num_LTS) # Even distribution of LTS cells between Layers 5A and 5B
 
 # total 400x400x1820 (ignoring layer 1)
 # Order from top to bottom is 2/3, 4, 5A, 5B, 6
 # Layer 2/3 (420 um thick) 23.1%
-num_cells_5A=numCP_in5A+numCS_in5A+numFSI_in5A+numLTS_in5A
-num_cells_5B=numCP_in5B+numCS_in5B+numFSI_in5B+numLTS_in5B
-
 # Layer 5A (250 um thick) 13.7% (z is 250 to 499)
-pos_list_5A = np.random.rand(num_cells_5A,3)
-pos_list_5A[:,0]= pos_list_5A[:,0]*(x_end - x_start) + x_start
-pos_list_5A[:,1]= pos_list_5A[:,1]*(y_end - y_start) + y_start
-pos_list_5A[:,2] = pos_list_5A[:,2]*(1000 - 500) + 500
-
 # Layer 5B (250 um thick) 13.7%  (z is 0 to 249)
+num_cells_5A = numCP_in5A + numCS_in5A + numFSI_in5A + numLTS_in5A
+num_cells_5B = numCP_in5B + numCS_in5B + numFSI_in5B + numLTS_in5B
+
+pos_list_5A = np.random.rand(num_cells_5A, 3)
+pos_list_5A[:,0] = pos_list_5A[:,0] * (x_end - x_start) + x_start
+pos_list_5A[:,1] = pos_list_5A[:,1] * (y_end - y_start) + y_start
+pos_list_5A[:,2] = pos_list_5A[:,2] * (z_end - z_5A) + z_5A
+
 pos_list_5B = np.random.rand(num_cells_5B,3)
-pos_list_5B[:,0]= pos_list_5B[:,0]*(x_end - x_start) + x_start
-pos_list_5B[:,1]= pos_list_5B[:,1]*(y_end - y_start) + y_start
-pos_list_5B[:,2] = pos_list_5B[:,2]*(500-0) + 0
+pos_list_5B[:,0] = pos_list_5B[:,0] * (x_end - x_start) + x_start
+pos_list_5B[:,1] = pos_list_5B[:,1] * (y_end - y_start) + y_start
+pos_list_5B[:,2] = pos_list_5B[:,2] * (z_5A - z_start) + z_start
 
-
+## TODO: generate random orientations
 
 
 def build_networks(network_definitions: list) -> dict:
-    # network_definitions should be a list of dictionaries eg:[{}]
+    # network_definitions should be a list of dictionaries, e.g. [{}]
     # Keys should include an arbitrary 'network_name', a positions_list (if any),
     # And 'cells'. 'cells' should contain a list of dictionaries, and the dictionary 
     # should corrospond with any valid input for BMTK's NetworkBuilder.add_nodes method 
     # A dictionary of NetworkBuilder BMTK objects will be returned, reference by individual network_name
     for net_def in network_definitions:
         network_name = net_def['network_name']
-        if not networks.get(network_name):
+        if networks.get(network_name) is None:
             networks[network_name] = NetworkBuilder(network_name)  # This is changed
-        pos_list = net_def.get('positions_list',None)
+        pos_list = net_def.get('positions_list', None)
 
         # Add cells to the network
+        num = 0
         for cell in net_def['cells']:
             num_cells = cell['N']
             extra_kwargs = {}
             if pos_list is not None:
-                inds = np.random.choice(np.arange(0,np.size(pos_list,0)),num_cells,replace=False)
-                pos = pos_list[inds,:]
-                # Get rid of coordinates already used
-                pos_list = np.delete(pos_list,inds,0)
-                extra_kwargs['positions'] = positions_list(positions=pos)
-            networks[network_name].add_nodes(**cell,**extra_kwargs)
-    
+                extra_kwargs['positions'] = pos_list[num:num + num_cells]
+                num += num_cells
+
+            cell = {k: v for k, v in cell.items() if v is not None}
+            extra_kwargs = {k: v for k, v in extra_kwargs.items() if v is not None}
+            networks[network_name].add_nodes(**cell, **extra_kwargs)
+
     return networks
 
 def build_edges(networks,edge_definitions,edge_params,edge_add_properties,syn=None):
@@ -120,13 +109,13 @@ def build_edges(networks,edge_definitions,edge_params,edge_add_properties,syn=No
         edge_params_val  = edge_params[edge['param']]
         dynamics_file = edge_params_val['dynamics_params']
         model_template = syn[dynamics_file]['level_of_detail']
-        
+
         model_template_kwarg = {'model_template':model_template}
 
         net = networks[network_name]
 
-        conn = net.add_edges(**edge_src_trg,**edge_params_val,**model_template_kwarg)
-        
+        conn = net.add_edges(**edge_src_trg, **edge_params_val, **model_template_kwarg)
+
         if edge.get('add_properties'):
             edge_add_properties_val = edge_add_properties[edge['add_properties']]
             conn.add_properties(**edge_add_properties_val)
@@ -143,113 +132,113 @@ def save_networks(networks,network_dir):
         network.save_nodes(output_dir=network_dir)
         network.save_edges(output_dir=network_dir)
 
-networks = {} #Place to store NetworkBuilder objects referenced by name
+networks = {}   # Dictionary to store NetworkBuilder objects referenced by name
 network_definitions = [
-    {  # Start Layer 5A
-        'network_name':'cortex',
-        'positions_list':pos_list_5A,
-        'cells':[
+    {   # Start Layer 5A
+        'network_name': 'cortex',
+        'positions_list': pos_list_5A,
+        'cells': [
             {   # CP
-                'N':numCP_in5A,
-                'pop_name':'CP',
-                'rotation_angle_zaxis':xiter_random(N=numCP_in5A, min_x=0.33*np.pi, max_x=0.5*np.pi),  # want cells to point upward within 60degree cone
-                'rotation_angle_yaxis':xiter_random(N=numCP_in5A, min_x=0.0, max_x=2*np.pi),
-                'model_type':'biophysical',
-                'model_template':'hoc:CP_Cell',
+                'N': numCP_in5A,
+                'pop_name': 'CP',
+                'rotation_angle_zaxis': None,
+                'rotation_angle_yaxis': None,
+                'model_type': 'biophysical',
+                'model_template': 'hoc:CP_Cell',
                 'morphology': 'blank.swc'
             },
             {   # CS
-                'N':numCS_in5A,
-                'pop_name':'CS',
-                'rotation_angle_zaxis':xiter_random(N=numCS_in5A, min_x=0.33*np.pi, max_x=0.5*np.pi),  # want cells to point upward within 60degree cone
-                'rotation_angle_yaxis':xiter_random(N=numCS_in5A, min_x=0.0, max_x=2*np.pi),
-                'model_type':'biophysical',
-                'model_template':'hoc:CS_Cell',
+                'N': numCS_in5A,
+                'pop_name': 'CS',
+                'rotation_angle_zaxis': None,
+                'rotation_angle_yaxis': None,
+                'model_type': 'biophysical',
+                'model_template': 'hoc:CS_Cell',
                 'morphology': 'blank.swc'
             },
             {   # FSI
-                'N':numFSI_in5A,
-                'pop_name':'FSI',
-                'rotation_angle_zaxis':xiter_random(N=numFSI_in5A, min_x=0.0, max_x=2*np.pi),  # want cells to be randomly oriented
-                'rotation_angle_yaxis':xiter_random(N=numFSI_in5A, min_x=0.0, max_x=2*np.pi),
-                'model_type':'biophysical',
-                'model_template':'hoc:FSI_Cell',
+                'N': numFSI_in5A,
+                'pop_name': 'FSI',
+                'rotation_angle_zaxis': None,
+                'rotation_angle_yaxis': None,
+                'model_type': 'biophysical',
+                'model_template': 'hoc:FSI_Cell',
                 'morphology': 'blank.swc'
             },
             {   # LTS
-                'N':numLTS_in5A,
-                'pop_name':'LTS',
-                'rotation_angle_zaxis':xiter_random(N=numLTS_in5A, min_x=0.0, max_x=2*np.pi),  # want cells to be randomly oriented
-                'rotation_angle_yaxis':xiter_random(N=numLTS_in5A, min_x=0.0, max_x=2*np.pi),
-                'model_type':'biophysical',
-                'model_template':'hoc:LTS_Cell',
+                'N': numLTS_in5A,
+                'pop_name': 'LTS',
+                'rotation_angle_zaxis': None,
+                'rotation_angle_yaxis': None,
+                'model_type': 'biophysical',
+                'model_template': 'hoc:LTS_Cell',
                 'morphology': 'blank.swc'
             }
         ]
-    }, # End Layer 5A
-    {  # Start Layer 5B
-        'network_name':'cortex',
-        'positions_list':pos_list_5B,
-        'cells':[
+    },  # End Layer 5A
+    {   # Start Layer 5B
+        'network_name': 'cortex',
+        'positions_list': pos_list_5B,
+        'cells': [
             {   # CP
-                'N':numCP_in5B,
-                'pop_name':'CP',
-                'rotation_angle_zaxis':xiter_random(N=numCP_in5B, min_x=0.33*np.pi, max_x=0.5*np.pi),  # want cells to point upward within 60degree cone
-                'rotation_angle_yaxis':xiter_random(N=numCP_in5B, min_x=0.0, max_x=2*np.pi),
-                'model_type':'biophysical',
-                'model_template':'hoc:CP_Cell',
+                'N': numCP_in5B,
+                'pop_name': 'CP',
+                'rotation_angle_zaxis': None,
+                'rotation_angle_yaxis': None,
+                'model_type': 'biophysical',
+                'model_template': 'hoc:CP_Cell',
                 'morphology': 'blank.swc'
             },
             {   # CS
-                'N':numCS_in5B,
-                'pop_name':'CS',
-                'rotation_angle_zaxis':xiter_random(N=numCS_in5B, min_x=0.33*np.pi, max_x=0.5*np.pi),  # want cells to point upward within 60degree cone
-                'rotation_angle_yaxis':xiter_random(N=numCS_in5B, min_x=0.0, max_x=2*np.pi),
-                'model_type':'biophysical',
-                'model_template':'hoc:CS_Cell',
+                'N': numCS_in5B,
+                'pop_name': 'CS',
+                'rotation_angle_zaxis': None,
+                'rotation_angle_yaxis': None,
+                'model_type': 'biophysical',
+                'model_template': 'hoc:CS_Cell',
                 'morphology': 'blank.swc'
             },
             {   # FSI
-                'N':numFSI_in5B,
-                'pop_name':'FSI',
-                'rotation_angle_zaxis':xiter_random(N=numFSI_in5B, min_x=0.0, max_x=2*np.pi),  # want cells to be randomly oriented
-                'rotation_angle_yaxis':xiter_random(N=numFSI_in5B, min_x=0.0, max_x=2*np.pi),
-                'model_type':'biophysical',
-                'model_template':'hoc:FSI_Cell',
+                'N': numFSI_in5B,
+                'pop_name': 'FSI',
+                'rotation_angle_zaxis': None,
+                'rotation_angle_yaxis': None,
+                'model_type': 'biophysical',
+                'model_template': 'hoc:FSI_Cell',
                 'morphology': 'blank.swc'
             },
             {   # LTS
-                'N':numLTS_in5B,
-                'pop_name':'LTS',
-                'rotation_angle_zaxis':xiter_random(N=numLTS_in5B, min_x=0.0, max_x=2*np.pi),  # want cells to be randomly oriented
-                'rotation_angle_yaxis':xiter_random(N=numLTS_in5B, min_x=0.0, max_x=2*np.pi),
-                'model_type':'biophysical',
-                'model_template':'hoc:LTS_Cell',
+                'N': numLTS_in5B,
+                'pop_name': 'LTS',
+                'rotation_angle_zaxis': None,
+                'rotation_angle_yaxis': None,
+                'model_type': 'biophysical',
+                'model_template': 'hoc:LTS_Cell',
                 'morphology': 'blank.swc'
             }
         ]
-    }, # End Layer 5B
-    {  # Extrinsic Thalamic Inputs
-        'network_name':'thalamus',
-        'positions_list':None,
-        'cells':[
+    },  # End Layer 5B
+    {   # Extrinsic Thalamic Inputs
+        'network_name': 'thalamus',
+        'positions_list': None,
+        'cells': [
             {   # Virtual Cells
-                'N':num_CP+num_CS,
-                'pop_name':'thal',
-                'potential':'exc',
-                'model_type':'virtual'
+                'N': num_CP + num_CS,
+                'pop_name': 'thal',
+                'potential': 'exc',
+                'model_type': 'virtual'
             }
         ]
     },
-    {  # Extrinsic Intbase Inputs
-        'network_name':'Intbase',
-        'positions_list':None,
-        'cells':[
+    {   # Extrinsic Intbase Inputs
+        'network_name': 'Intbase',
+        'positions_list': None,
+        'cells': [
             {   # Virtual Cells
-                'N':num_FSI+num_LTS,
-                'pop_name':'Int',
-                'potential':'exc',
-                'model_type':'virtual'
+                'N': num_FSI + num_LTS,
+                'pop_name': 'Int',
+                'potential': 'exc',
+                'model_type': 'virtual'
             }
         ]
     }
@@ -259,171 +248,118 @@ network_definitions = [
 ############################  EDGE EFFECTS  ##############################
 
 if edge_effects: # When enabled, a shell of virtual cells will be created around the core network.
+
+    # compute the outer shell range. The absolute max_conn_dist will extend each dimension of the core by 2*max_conn_dist
+    shell_x_start, shell_y_start, shell_z_start = np.array((x_start, y_start, z_start)) - max_conn_dist
+    shell_x_end, shell_y_end, shell_z_end = np.array((x_end, y_end, z_end)) + max_conn_dist
     
-    # compute the core volume
-    core_x,core_y,core_z = (x_end-x_start),(y_end-y_start),(z_end-z_start)
-    core_volume =  core_x * core_y * core_z
+    # compute the core and shell volume
+    core_volume_5A = (x_end - x_start) * (y_end - y_start) * (z_end - z_5A)
+    core_volume_5B = (x_end - x_start) * (y_end - y_start) * (z_5A - z_start)
+    shell_volume_5A = (shell_x_end - shell_x_start) * (shell_y_end - shell_y_start) * (shell_z_end - z_5A)
+    shell_volume_5B = (shell_x_end - shell_x_start) * (shell_y_end - shell_y_start) * (z_5A - shell_z_start)
 
-    # compute the outer shell volume. The absolute max_conn_dist will extend each dimension of the core by 2*max_conn_dist
-    shell_x_start,shell_y_start,shell_z_start = x_start - max_conn_dist, x_start - max_conn_dist, z_start - max_conn_dist
-    shell_x_end,shell_y_end,shell_z_end = x_end + max_conn_dist, y_end + max_conn_dist, z_end + max_conn_dist
-    shell_x,shell_y,shell_z = (shell_x_end-shell_x_start),(shell_y_end-shell_y_start),(shell_z_end-shell_z_start)
-    shell_volume = shell_x * shell_y * shell_z
-
-    # Determine the size difference between core and shell
-    shell_multiplier = (shell_volume/core_volume) 
-
-    # Increase the number of original cells based on the shell_multiplier
+    # Increase the number of original cells based on the volume difference between core and shell
     #Layer 5A
-    virt_numCP_in5A = int(numCP_in5A * shell_multiplier)
-    virt_numCS_in5A = int(numCS_in5A * shell_multiplier)
-    virt_numFSI_in5A = int(numFSI_in5A * shell_multiplier)
-    virt_numLTS_in5A  = int(numLTS_in5A * shell_multiplier)
-
-    virt_num_cells_5A = virt_numCP_in5A +virt_numCS_in5A + virt_numFSI_in5A + virt_numLTS_in5A
+    virt_num_cells_5A = int(round(num_cells_5A * shell_volume_5A / core_volume_5A))
     #Layer 5B
-    virt_numCP_in5B = int(numCP_in5B * shell_multiplier)
-    virt_numCS_in5B = int(numCS_in5B * shell_multiplier)
-    virt_numFSI_in5B = int(numFSI_in5B * shell_multiplier)
-    virt_numLTS_in5B  = int(numLTS_in5B * shell_multiplier)
+    virt_num_cells_5B = int(round(num_cells_5B * shell_volume_5B / core_volume_5B))
 
-    virt_num_cells_5B = virt_numCP_in5B +virt_numCS_in5B + virt_numFSI_in5B + virt_numLTS_in5B
+    # Create a positions list for cells in the shell
+    virt_pos_list_5A = np.random.rand(virt_num_cells_5A, 3)
+    virt_pos_list_5A[:,0] = virt_pos_list_5A[:,0] * (shell_x_end - shell_x_start) + shell_x_start
+    virt_pos_list_5A[:,1] = virt_pos_list_5A[:,1] * (shell_y_end - shell_y_start) + shell_y_start
+    virt_pos_list_5A[:,2] = virt_pos_list_5A[:,2] * (shell_z_end - z_5A) + z_5A
+    i_shell = (virt_pos_list_5A[:,0] < x_start) | (virt_pos_list_5A[:,0] > x_end) | \
+              (virt_pos_list_5A[:,1] < y_start) | (virt_pos_list_5A[:,1] > y_end) | \
+              (virt_pos_list_5A[:,2] > z_end)
+    virt_pos_list_5A = virt_pos_list_5A[i_shell]
 
+    virt_pos_list_5B = np.random.rand(virt_num_cells_5B, 3)
+    virt_pos_list_5B[:,0] = virt_pos_list_5B[:,0] * (shell_x_end - shell_x_start) + shell_x_start
+    virt_pos_list_5B[:,1] = virt_pos_list_5B[:,1] * (shell_y_end - shell_y_start) + shell_y_start
+    virt_pos_list_5B[:,2] = virt_pos_list_5B[:,2] * (z_5A - shell_z_start) + shell_z_start
+    i_shell = (virt_pos_list_5B[:,0] < x_start) | (virt_pos_list_5B[:,0] > x_end) | \
+              (virt_pos_list_5B[:,1] < y_start) | (virt_pos_list_5B[:,1] > y_end) | \
+              (virt_pos_list_5B[:,2] < z_start)
+    virt_pos_list_5B = virt_pos_list_5B[i_shell]
 
-    virt_num_cells =  virt_numCP_in5A + virt_numCS_in5A  + virt_numFSI_in5A + virt_numLTS_in5A + virt_numCP_in5B + virt_numCS_in5B  + virt_numFSI_in5B + virt_numLTS_in5B 
-    
-    # Create a positions list for each cell in the shell, this includes positions in the core
-    virt_pos_list = np.random.rand(virt_num_cells,3)
-    virt_pos_list[:,0] = virt_pos_list[:,0]*(shell_x_end - shell_x_start) + shell_x_start
-    virt_pos_list[:,1] = virt_pos_list[:,1]*(shell_y_end - shell_y_start) + shell_y_start
-    virt_pos_list[:,2] = virt_pos_list[:,2]*(shell_z_end - shell_z_start) + shell_z_start
-    
+    # Recalculate number of cells in each layer
+    virt_num_cells_5A = len(virt_pos_list_5A)
+    virt_numCP_in5A, virt_numCS_in5A, virt_numFSI_in5A, virt_numLTS_in5A = \
+        num_prop([numCP_in5A, numCS_in5A, numFSI_in5A, numLTS_in5A], virt_num_cells_5A)
 
-    # Layer 5A (250 um thick) 13.7% (z is 250 to 499)
-    virt_pos_list_5A = np.random.rand(virt_num_cells_5A,3)
-    virt_pos_list_5A[:,0]= virt_pos_list_5A[:,0]*(shell_x_end - shell_x_start) + shell_x_start
-    virt_pos_list_5A[:,1]= virt_pos_list_5A[:,1]*(shell_y_end - shell_y_start) + shell_y_start
-    virt_pos_list_5A[:,2] = virt_pos_list_5A[:,2]*(800) + 500
+    virt_num_cells_5B = len(virt_pos_list_5B)
+    virt_numCP_in5B, virt_numCS_in5B, virt_numFSI_in5B, virt_numLTS_in5B = \
+        num_prop([numCP_in5B, numCS_in5B, numFSI_in5B, numLTS_in5B], virt_num_cells_5B)
 
-    # Layer 5B (250 um thick) 13.7%  (z is 0 to 249)
-    virt_pos_list_5B = np.random.rand(virt_num_cells_5B,3)
-    virt_pos_list_5B[:,0]= virt_pos_list_5B[:,0]*(shell_x_end - shell_x_start) + shell_x_start
-    virt_pos_list_5B[:,1]= virt_pos_list_5B[:,1]*(shell_y_end - shell_y_start) + shell_y_start
-    virt_pos_list_5B[:,2] = virt_pos_list_5B[:,2]*(800) - 300
-
-
-    # EXCLUDE POSITIONS IN THE CORE - We remove all virtual cells located in the core (accounting for no -1 on shell_multiplier)
-    in_core = np.where(((virt_pos_list[:,0] < x_start) | (virt_pos_list[:,0] > x_end)) & 
-                       ((virt_pos_list[:,1] < y_start) | (virt_pos_list[:,1] > y_end)) & 
-                       ((virt_pos_list[:,2] < z_start) | (virt_pos_list[:,2] > z_end)))
-    virt_pos_list = np.delete(virt_pos_list,in_core,0)
-
-    # Bring down the number of shell cells to create by scaling
-    # This ensures we have enough positions in virt_pos_list for all of our cells
-    # Old density multiplied by new number of cells
-    new_virt_num_cells = len(virt_pos_list)
-    #Layer 5A
-    virt_numCP_in5A = int(virt_numCP_in5A/virt_num_cells*new_virt_num_cells)
-    virt_numCS_in5A = int(virt_numCS_in5A/virt_num_cells*new_virt_num_cells)
-    virt_numFSI_in5A = int(virt_numFSI_in5A/virt_num_cells*new_virt_num_cells)
-    virt_numLTS_in5A = int(virt_numLTS_in5A/virt_num_cells*new_virt_num_cells)
-    #Layer 5B
-    virt_numCP_in5B = int(virt_numCP_in5B/virt_num_cells*new_virt_num_cells)
-    virt_numCS_in5B = int(virt_numCS_in5B/virt_num_cells*new_virt_num_cells)
-    virt_numFSI_in5B = int(virt_numFSI_in5B/virt_num_cells*new_virt_num_cells)
-    virt_numLTS_in5B = int(virt_numLTS_in5B/virt_num_cells*new_virt_num_cells)
-
-    
-    virt_num_cells = virt_numCP_in5A + virt_numCS_in5A  + virt_numFSI_in5A + virt_numLTS_in5A + virt_numCP_in5B + virt_numCS_in5B  + virt_numFSI_in5B + virt_numLTS_in5B 
-    #print("The number of Virtual Cells in the M1 Cortex:")
-    #print(virt_num_cells)
-    # This should always be true, virt_num_cells is now equal to a scaled down number
-    # While new_virt_num_cells is the length of the available cells
-    assert(virt_num_cells <= new_virt_num_cells)    
+    virt_num_cells = virt_num_cells_5A + virt_num_cells_5B
 
     # This network should contain all the same properties as the original network, except
     # the cell should be virtual. For connectivity, you should name the cells the same as
     # the original network because connection rules defined later will require it
     shell_network = [
-    {  # Start Layer 5A
-        'network_name':'shell',
-        'positions_list':virt_pos_list_5A,
-        'cells':[
+    {   # Start Layer 5A
+        'network_name': 'shell',
+        'positions_list': virt_pos_list_5A,
+        'cells': [
             {   # CP
-                'N':virt_numCP_in5A,
-                'pop_name':'CP',
-                'rotation_angle_zaxis':xiter_random(N=virt_numCP_in5A, min_x=0.33*np.pi, max_x=0.5*np.pi),  # want cells to point upward within 60degree cone
-                'rotation_angle_yaxis':xiter_random(N=virt_numCP_in5A, min_x=0.0, max_x=2*np.pi),
-                'model_type':'virtual'
+                'N': virt_numCP_in5A,
+                'pop_name': 'CP',
+                'model_type': 'virtual'
             },
             {   # CS
-                'N':virt_numCS_in5A,
-                'pop_name':'CS',
-                'rotation_angle_zaxis':xiter_random(N=virt_numCS_in5A, min_x=0.33*np.pi, max_x=0.5*np.pi),  # want cells to point upward within 60degree cone
-                'rotation_angle_yaxis':xiter_random(N=virt_numCS_in5A, min_x=0.0, max_x=2*np.pi),
-                'model_type':'virtual'
+                'N': virt_numCS_in5A,
+                'pop_name': 'CS',
+                'model_type': 'virtual'
             },
             {   # FSI
-                'N':virt_numFSI_in5A,
+                'N': virt_numFSI_in5A,
                 'pop_name':'FSI',
-                'rotation_angle_zaxis':xiter_random(N=virt_numFSI_in5A, min_x=0.0, max_x=2*np.pi),  # want cells to be randomly oriented
-                'rotation_angle_yaxis':xiter_random(N=virt_numFSI_in5A, min_x=0.0, max_x=2*np.pi),
-                'model_type':'virtual'
+                'model_type': 'virtual'
             },
             {   # LTS
-                'N':virt_numLTS_in5A,
-                'pop_name':'LTS',
-                'rotation_angle_zaxis':xiter_random(N=virt_numLTS_in5A, min_x=0.0, max_x=2*np.pi),  # want cells to be randomly oriented
-                'rotation_angle_yaxis':xiter_random(N=virt_numLTS_in5A, min_x=0.0, max_x=2*np.pi),
-                'model_type':'virtual'
+                'N': virt_numLTS_in5A,
+                'pop_name': 'LTS',
+                'model_type': 'virtual'
             }
         ]
     }, # End Layer 5A
-    {  # Start Layer 5B
-        'network_name':'shell',
-        'positions_list':virt_pos_list_5B,
-        'cells':[
+    {   # Start Layer 5B
+        'network_name': 'shell',
+        'positions_list': virt_pos_list_5B,
+        'cells': [
             {   # CP
-                'N':virt_numCP_in5B,
-                'pop_name':'CP',
-                'rotation_angle_zaxis':xiter_random(N=virt_numCP_in5B, min_x=0.33*np.pi, max_x=0.5*np.pi),  # want cells to point upward within 60degree cone
-                'rotation_angle_yaxis':xiter_random(N=virt_numCP_in5B, min_x=0.0, max_x=2*np.pi),
-                'model_type':'virtual'
+                'N': virt_numCP_in5B,
+                'pop_name': 'CP',
+                'model_type': 'virtual'
             },
             {   # CS
-                'N':virt_numCS_in5B,
-                'pop_name':'CS',
-                'rotation_angle_zaxis':xiter_random(N=virt_numCS_in5B, min_x=0.33*np.pi, max_x=0.5*np.pi),  # want cells to point upward within 60degree cone
-                'rotation_angle_yaxis':xiter_random(N=virt_numCS_in5B, min_x=0.0, max_x=2*np.pi),
-                'model_type':'virtual'
+                'N': virt_numCS_in5B,
+                'pop_name': 'CS',
+                'model_type': 'virtual'
             },
             {   # FSI
-                'N':virt_numFSI_in5B,
-                'pop_name':'FSI',
-                'rotation_angle_zaxis':xiter_random(N=virt_numFSI_in5B, min_x=0.0, max_x=2*np.pi),  # want cells to be randomly oriented
-                'rotation_angle_yaxis':xiter_random(N=virt_numFSI_in5B, min_x=0.0, max_x=2*np.pi),
-                'model_type':'virtual'
+                'N': virt_numFSI_in5B,
+                'pop_name': 'FSI',
+                'model_type': 'virtual'
             },
             {   # LTS
-                'N':virt_numLTS_in5B,
-                'pop_name':'LTS',
-                'rotation_angle_zaxis':xiter_random(N=virt_numLTS_in5B, min_x=0.0, max_x=2*np.pi),  # want cells to be randomly oriented
-                'rotation_angle_yaxis':xiter_random(N=virt_numLTS_in5B, min_x=0.0, max_x=2*np.pi),
-                'model_type':'virtual'
+                'N': virt_numLTS_in5B,
+                'pop_name': 'LTS',
+                'model_type': 'virtual'
             }
         ]
     } # End Layer 5B
 ]
-    # Add the shell to our network definitions
-    network_definitions.extend(shell_network)
+# Add the shell to our network definitions
+network_definitions.extend(shell_network)
 
 ##########################################################################
 ##########################################################################
 
 # Build and save our NetworkBuilder dictionary
 networks = build_networks(network_definitions)
-
-
 
 
 # Whole reason for restructuring network building lies here, by separating out the

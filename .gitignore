@@ -12,9 +12,8 @@ x86_64/
 *.jpg
 *.npy
 *.zip
+*backup*
+/temp/
 /M1Focus/network/
-/M1Focus/output/
 /M1Focus/results/
-/M1Focus/stdout/
-/M1Focus/ecp_tmp/
 /Analysis/simulation_results/
