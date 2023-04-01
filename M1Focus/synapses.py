@@ -348,7 +348,7 @@ def pyr2pyr(syn_params, xs, secs):
 
 def load():
     add_synapse_model(Pyr2Pyr, 'pyr2pyr', overwrite=False)
-    add_synapse_model(Pyr2Pyr, overwrite=False)
+    add_synapse_model(Pyr2Pyr, overwrite=False) # redundant?
     add_synapse_model(Pyr2Int, 'pyr2int', overwrite=False)
     add_synapse_model(Pyr2Int, overwrite=False)
     add_synapse_model(Int2Pyr, 'int2pyr', overwrite=False)
