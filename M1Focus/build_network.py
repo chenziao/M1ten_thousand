@@ -1,11 +1,13 @@
-from bmtk.builder import NetworkBuilder
 import numpy as np
+import os
+from functools import partial
+from bmtk.builder import NetworkBuilder
+from bmtk.builder.node_pool import NodePool
 from bmtk.utils.sim_setup import build_env_bionet
 import synapses
-import os
-from connectors import *
 from connectors import (
-    syn_dist_delay_feng_section
+    ReciprocalConnector, GaussianDropoff, spherical_dist, cylindrical_dist_z,
+    syn_dist_delay_feng_section, syn_uniform_delay_section, section_id_placement
 )
 
 randseed = 123412
@@ -15,7 +17,7 @@ network_dir = 'network'
 t_sim = 11500.0
 dt = 0.05
 
-num_cells = 50 # 10000
+num_cells = 1000 # 10000
 column_width, column_height = 1000., 1000.
 x_start, x_end = -column_width/2, column_width/2
 y_start, y_end = -column_width/2, column_width/2
@@ -102,21 +104,40 @@ def build_edges(networks, edge_definitions, edge_params, edge_add_properties, sy
     # Builds the edges for each network given a set of 'edge_definitions'
     # edge_definitions examples shown later in the code
     for edge in edge_definitions:
-        network_name = edge['network']
-        edge_src_trg = edge['edge']
-        edge_params_val = edge_params[edge['param']]
-        dynamics_file = edge_params_val['dynamics_params']
+        net = networks[edge['network']]
+        # edge arguments
+        edge_params_val = edge_params[edge['param']].copy()
+        # get synapse template file
+        dynamics_file = edge_params_val.pop('dynamics_params')
         model_template = syn[dynamics_file]['level_of_detail']
+        # get source and target nodes
+        edge_src_trg = edge.get('edge')
+        if edge_src_trg:
+            src_net = edge_src_trg.get('source_network', net)
+            trg_net = edge_src_trg.get('target_network', net)
+            source = src_net.nodes(**edge_src_trg['source'])
+            target = trg_net.nodes(**edge_src_trg['target'])
+            edge_params_val.update({'source': source, 'target': target})
+        # use connector class
+        connector_class = edge_params_val.pop('connector_class', None)
+        if connector_class is not None:
+            # create a connector object
+            connector_params = edge_params_val.pop('connector_params')
+            connector = connector_class(**connector_params)
+            # keep object reference in the dictionary
+            edge_params[edge['param']]['connector_object'] = connector
+            if edge_src_trg:
+                connector.setup_nodes(source=source, target=target)
+            edge_params_val.update(connector.edge_params())
+        conn = net.add_edges(model_template=model_template, **edge_params_val)
 
-        model_template_kwarg = {'model_template': model_template}
-
-        net = networks[network_name]
-
-        conn = net.add_edges(**edge_src_trg, **edge_params_val, **model_template_kwarg)
-
-        if edge.get('add_properties'):
-            edge_add_properties_val = edge_add_properties[edge['add_properties']]
-            conn.add_properties(**edge_add_properties_val)
+        edge_properties = edge.get('add_properties')
+        if edge_properties:
+            edge_properties_val = edge_add_properties[edge_properties].copy()
+            if connector_class is not None:
+                edge_properties_val['rule'] = partial(
+                    edge_properties_val['rule'], connector=connector)
+            conn.add_properties(**edge_properties_val)
 
 def save_networks(networks,network_dir):
     # Remove the existing network_dir directory
@@ -358,7 +379,7 @@ network_definitions.extend(shell_network)
 
 # Build and save our NetworkBuilder dictionary
 networks = build_networks(network_definitions)
-
+# import pdb; pdb.set_trace()
 
 ##########################################################################
 #############################  BUILD EDGES  ##############################
@@ -379,152 +400,38 @@ networks = build_networks(network_definitions)
 #    }
 # ]
 
-edge_definitions = [
-    {   # FSI -> FSI Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['FSI']},
-            'target': {'pop_name': ['FSI']}
-        },
-        'param': 'FSI2FSI_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
+# Will be called by conn.add_properties for the associated connection
+edge_add_properties = {
+    'syn_dist_delay_feng_section_default': {
+        'names': ['delay', 'sec_id', 'sec_x'],
+        'rule': syn_dist_delay_feng_section,
+        'rule_params': {'sec_x': 0.9},
+        'dtypes': [float, np.int32, float]
     },
+    'syn_uniform_delay_section_default': {
+        'names': ['delay', 'sec_id', 'sec_x'],
+        'rule': syn_uniform_delay_section,
+        'rule_params': {'sec_x': 0.9},
+        'dtypes': [float, np.int32, float]
+    },
+    'section_id_placement': {
+        'names': ['sec_id', 'sec_x'],
+        'rule': section_id_placement,
+        'dtypes': [np.int32, float]
+    }
+}
+
+edge_definitions = [
     {   # FSI -> FSI Reciprocal
         'network': 'cortex',
         'edge': {
             'source': {'pop_name': ['FSI']},
             'target': {'pop_name': ['FSI']}
         },
-        'param': 'FSI2FSI_rec',
+        'param': 'FSI2FSI',
         'add_properties': 'syn_dist_delay_feng_section_default'
     },
-    {   # FSI -> CP Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['FSI']},
-            'target': {'pop_name': ['CP']}
-        },
-        'param': 'FSI2CP_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # FSI -> CP Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['FSI']},
-            'target': {'pop_name': ['CP']}
-        },
-        'param': 'FSI2CP_rec',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # FSI -> CS Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['FSI']},
-            'target': {'pop_name': ['CS']}
-        },
-        'param': 'FSI2CS_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # FSI -> CS Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['FSI']},
-            'target': {'pop_name': ['CS']}
-        },
-        'param': 'FSI2CS_rec',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # FSI -> LTS Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['FSI']},
-            'target': {'pop_name': ['LTS']}
-        },
-        'param': 'FSI2LTS_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # FSI -> LTS Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['FSI']},
-            'target': {'pop_name': ['LTS']}
-        },
-        'param': 'FSI2LTS_rec',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # LTS -> LTS Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['LTS']}
-        },
-        'param': 'LTS2LTS_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # LTS -> LTS Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['LTS']}
-        },
-        'param': 'LTS2LTS_rec',
-        'add_properties': ''
-    },
-    {   # LTS -> FSI Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['FSI']}
-        },
-        'param': 'LTS2FSI_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # LTS -> FSI Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['FSI']}
-        },
-        'param': 'LTS2FSI_rec',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # LTS -> CP Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['CP']}
-        },
-        'param': 'LTS2CP_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # LTS -> CP Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['CP']}
-        },
-        'param': 'LTS2CP_rec',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # LTS -> CS Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['CS']}
-        },
-        'param': 'LTS2CS_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # LTS -> CS Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['CS']}
-        },
-        'param': 'LTS2CS_rec',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CP -> FSI
+    {   # CP -> FSI forward
         'network': 'cortex',
         'edge': {
             'source': {'pop_name': ['CP']},
@@ -533,125 +440,16 @@ edge_definitions = [
         'param': 'CP2FSI',
         'add_properties': 'syn_dist_delay_feng_section_default'
     },
-    {   # CS -> FSI
+    {   # CP <- FSI backward
         'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CS']},
-            'target': {'pop_name': ['FSI']}
-        },
-        'param': 'CS2FSI',
+        'param': 'FSI2CP',
         'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CP -> LTS
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CP']},
-            'target': {'pop_name': ['LTS']}
-        },
-        'param': 'CP2LTS',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CS -> LTS
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CS']},
-            'target': {'pop_name': ['LTS']}
-        },
-        'param': 'CS2LTS',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CP -> CS
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CP']},
-            'target': {'pop_name': ['CS']}
-        },
-        'param': 'CP2CS',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CS -> CP
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CS']},
-            'target': {'pop_name': ['CP']}
-        },
-        'param': 'CS2CP',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CP -> CP Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CP']},
-            'target': {'pop_name': ['CP']}
-        },
-        'param': 'CP2CP_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CP -> CP Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CP']},
-            'target': {'pop_name': ['CP']}
-        },
-        'param': 'CP2CP_rec',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CS -> CS Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CS']},
-            'target': {'pop_name': ['CS']}
-        },
-        'param': 'CS2CS_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CS -> CS Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CS']},
-            'target': {'pop_name': ['CS']}
-        },
-        'param': 'CS2CS_rec',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
+    }
 
         ################### THALAMIC INPUT ################
 
-    {   # Thalamus Excitation to CP
-        'network': 'cortex',
-        'edge': {
-            'source': networks['thalamus'].nodes(),
-            'target': networks['cortex'].nodes(pop_name=['CP'])
-        },
-        'param': 'Thal2CP'
-    },
-    {   # Thalamus Excitation to CS
-        'network': 'cortex',
-        'edge': {
-            'source': networks['thalamus'].nodes(),
-            'target': networks['cortex'].nodes(pop_name=['CS'])
-        },
-        'param': 'Thal2CS'
-    },
-
         ##################### Interneuron baseline INPUT #####################
 
-    {    # To all FSI
-        'network': 'cortex',
-        'edge': {
-            'source': networks['Intbase'].nodes(),
-            'target': networks['cortex'].nodes(pop_name=['FSI'])
-        },
-        'param': 'Intbase2FSI'
-    },
-    {    # To all LTS
-        'network': 'cortex',
-        'edge': {
-            'source': networks['Intbase'].nodes(),
-            'target': networks['cortex'].nodes(pop_name=['LTS'])
-        },
-        'param': 'Intbase2LTS'
-    },
 ]
 
 # A few connectors require a list for tracking synapses that are recurrent, declare them here
@@ -669,318 +467,54 @@ LTS_FSI_list = []
 # CS_CP_list = []
 # CP_CS_list = []
 
+def GetConnector(param):
+    edge_params_val = edge_params[param]
+    if 'connector_object' in edge_params_val:
+        return edge_params_val['connector_object']
+    else:
+        raise ValueError("No connector implemented in '%s'" % param)
+
 # edge_params should contain additional parameters to be added to add_edges calls
+# The following parameters for random synapse placement are not necessary
+# if conn.add_properties specifies sec_id and sec_x.
+# distance_range: place synapse within distance range [dmin, dmax] from soma
+# target_sections: place synapse within the given sections in a list
 edge_params = {
-    'FSI2FSI_uni': {
-        'iterator': 'one_to_all',
-        'connection_rule': sphere_dropoff,
-        'connection_params': {'p': 0.34, 'stdev': 131.48, 'track_list': FSI_FSI_list},
+    'FSI2FSI': {
+        'connector_class': ReciprocalConnector,
+        'connector_params': {
+            'p0': GaussianDropoff(
+                stdev=131.48, min_dist=min_conn_dist, max_dist=max_conn_dist,
+                pmax=0.34, dist_type='spherical'),
+            'p0_arg': spherical_dist,
+            'pr': 0.34 * 0.43, 'estimate_rho': True,
+            },
         'syn_weight': 1,
-        'dynamics_params': 'FSI2FSI.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'FSI2FSI_rec': {
-        'iterator': 'one_to_all',
-        'connection_rule': recurrent_connector_o2a,
-        'connection_params': {'p': 0.43, 'all_edges': FSI_FSI_list},
-        'syn_weight': 1,
-        'dynamics_params': 'FSI2FSI.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'FSI2CP_uni': {
-        'iterator': 'one_to_all',
-        'connection_rule': sphere_dropoff,
-        'connection_params': {'p': 0.20, 'stdev': 95.98, 'track_list': FSI_CP_list},
-        'syn_weight': 1,
-        'dynamics_params': 'FSI2CP.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'FSI2CP_rec': {
-        'iterator': 'one_to_all',
-        'connection_rule': recurrent_connector_o2a,
-        'connection_params': {'p': 0.28, 'all_edges': FSI_CP_list},
-        'syn_weight': 1,
-        'dynamics_params': 'FSI2CP.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'FSI2CS_uni': {
-        'iterator': 'one_to_all',
-        'connection_rule': sphere_dropoff,
-        'connection_params': {'p': 0.17, 'stdev': 95.98, 'track_list': FSI_CP_list},
-        'syn_weight': 1,
-        'dynamics_params': 'FSI2CS.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'FSI2CS_rec': {
-        'iterator': 'one_to_all',
-        'connection_rule':recurrent_connector_o2a,
-        'connection_params': {'p': 0.20, 'all_edges': FSI_CP_list},
-        'syn_weight': 1,
-        'dynamics_params': 'FSI2CS.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'FSI2LTS_uni': {
-        'iterator': 'one_to_all',
-        'connection_rule': sphere_dropoff,
-        'connection_params': {'p': 0.34, 'stdev': 131.48, 'track_list': FSI_LTS_list},
-        'syn_weight': 1,
-        'dynamics_params': 'FSI2LTS.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'FSI2LTS_rec': {
-        'iterator': 'one_to_all',
-        'connection_rule': recurrent_connector_o2a,
-        'connection_params': {'p': 0.21, 'all_edges': FSI_LTS_list},
-        'syn_weight': 1,
-        'dynamics_params': 'FSI2LTS.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
+        'dynamics_params': 'FSI2FSI.json'
     },
     'CP2FSI': {
-        'iterator': 'one_to_all',
-        'connection_rule': cs2cp_gaussian_cylinder,
-        'connection_params': {'p': 0.32, 'stdev': 99.25},
+        'connector_class': ReciprocalConnector,
+        'connector_params': {
+            'p0': GaussianDropoff(
+                stdev=99.25, min_dist=min_conn_dist, max_dist=max_conn_dist,
+                pmax=0.32, dist_type='cylindrical'),
+            'p0_arg': cylindrical_dist_z,
+            'p1': GaussianDropoff(
+                stdev=95.98, min_dist=min_conn_dist, max_dist=max_conn_dist,
+                pmax=0.20, dist_type='spherical'),
+            'p1_arg': spherical_dist,
+            'pr': 0.20 * 0.28, 'estimate_rho': True,
+            },
         'syn_weight': 1,
-        'dynamics_params': 'CP2FSI.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
+        'dynamics_params': 'CP2FSI.json'
     },
-    'CS2FSI': {
-        'iterator': 'one_to_all',
-        'connection_rule': cs2cp_gaussian_cylinder,
-        'connection_params': {'p': 0.22, 'stdev': 99.25},
+    'FSI2CP': {
+        'connector_class': GetConnector,
+        'connector_params': {'param': 'CP2FSI'},
         'syn_weight': 1,
-        'dynamics_params': 'CS2FSI.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'LTS2LTS_uni': {
-        'iterator': 'one_to_all',
-        'connection_rule': sphere_dropoff,
-        'connection_params': {'p': 0.034, 'stdev': 131.48, 'track_list': LTS_LTS_list},
-        'syn_weight': 1,
-        'dynamics_params': 'INT2INT.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'LTS2LTS_rec': {
-        'iterator': 'one_to_all',
-        'connection_rule': recurrent_connector_o2a,
-        'connection_params': {'p': 0.043, 'all_edges': LTS_LTS_list},
-        'syn_weight': 1,
-        'dynamics_params': 'INT2INT.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'LTS2CP_uni': {
-        'iterator': 'one_to_all',
-        'connection_rule': sphere_dropoff,
-        'connection_params': {'p': 0.35, 'stdev': 95.98, 'track_list': LTS_CP_list},
-        'syn_weight': 1,
-        'dynamics_params': 'LTS2PN.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'LTS2CP_rec': {
-        'iterator': 'one_to_all',
-        'connection_rule': recurrent_connector_o2a,
-        'connection_params': {'p': 0.17, 'all_edges': LTS_CP_list},
-        'syn_weight': 1,
-        'dynamics_params': 'LTS2PN.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'LTS2CS_uni': {
-        'iterator': 'one_to_all',
-        'connection_rule': sphere_dropoff,
-        'connection_params': {'p': 0.35, 'stdev': 95.98, 'track_list': LTS_CP_list},
-        'syn_weight': 1,
-        'dynamics_params': 'LTS2PN.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'LTS2CS_rec': {
-        'iterator': 'one_to_all',
-        'connection_rule': recurrent_connector_o2a,
-        'connection_params': {'p': 0.17, 'all_edges': LTS_CP_list},
-        'syn_weight': 1,
-        'dynamics_params': 'LTS2PN.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'LTS2FSI_uni': {
-        'iterator': 'one_to_all',
-        'connection_rule': sphere_dropoff,
-        'connection_params': {'p': 0.53, 'stdev': 131.48, 'track_list': LTS_FSI_list},
-        'syn_weight': 1,
-        'dynamics_params': 'LTS2FSI.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'LTS2FSI_rec': {
-        'iterator': 'one_to_all',
-        'connection_rule': recurrent_connector_o2a,
-        'connection_params': {'p': 0.21, 'all_edges': LTS_FSI_list},
-        'syn_weight': 1,
-        'dynamics_params': 'LTS2FSI.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'CP2LTS': {
-        'iterator': 'one_to_all',
-        'connection_rule': cs2cp_gaussian_cylinder,
-        'connection_params': {'p': 0.57, 'stdev': 99.25, 'track_list': CP_LTS_list},
-        'syn_weight': 1,
-        'dynamics_params': 'PN2LTS.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'CP2LTS_rec': {
-        'iterator': 'one_to_all',
-        'connection_rule': recurrent_connector_o2a,
-        'connection_params': {'p': 0.2, 'all_edges': CP_LTS_list},
-        'syn_weight': 1,
-        'dynamics_params': 'PN2LTS.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'CS2LTS': {
-        'iterator': 'one_to_all',
-        'connection_rule': cs2cp_gaussian_cylinder,
-        'connection_params': {'p': 0.57, 'stdev': 99.25, 'track_list': CS_LTS_list},
-        'syn_weight': 1,
-        'dynamics_params': 'PN2LTS.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'CS2LTS_rec': {
-        'iterator': 'one_to_all',
-        'connection_rule': recurrent_connector_o2a,
-        'connection_params': {'p': 0.2, 'all_edges': CS_LTS_list},
-        'syn_weight': 1,
-        'dynamics_params': 'PN2LTS.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'CP2CS': {
-        'iterator': 'one_to_all',
-        'connection_rule': cs2cp_gaussian_cylinder,
-        'connection_params': {'p': 0.01, 'stdev': 124.62},
-        'syn_weight': 1,
-        'dynamics_params': 'CP2CS.json', # same as 'CS2CS.json'
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'CS2CP': {
-        'iterator': 'one_to_all',
-        'connection_rule': cs2cp_gaussian_cylinder,
-        'connection_params': {'p': 0.1, 'stdev': 124.62},
-        'syn_weight': 1,
-        'dynamics_params': 'CS2CS.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'CP2CP_uni': {
-        'iterator': 'one_to_all',
-        'connection_rule': cs2cp_gaussian_cylinder,
-        'connection_params': {'p': 0.10, 'stdev': 124.62, 'track_list': CP_CP_list},
-        'syn_weight': 1,
-        'dynamics_params': 'CP2CP.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'CP2CP_rec': {
-        'iterator': 'one_to_all',
-        'connection_rule': recurrent_connector_o2a,
-        'connection_params': {'p': 0.3, 'all_edges': CP_CP_list},
-        'syn_weight': 1,
-        'dynamics_params': 'CP2CP.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'CS2CS_uni': {
-        'iterator': 'one_to_all',
-        'connection_rule': cs2cp_gaussian_cylinder,
-        'connection_params': {'p': 0.1, 'stdev': 124.62, 'track_list': CS_CS_list},
-        'syn_weight': 1,
-        'dynamics_params': 'CS2CS.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'CS2CS_rec': {
-        'iterator': 'one_to_all',
-        'connection_rule': recurrent_connector_o2a,
-        'connection_params': {'p': 0.3, 'all_edges': CS_CS_list},
-        'syn_weight': 1,
-        'dynamics_params': 'CS2CS.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'target_sections': ['dend']
-    },
-    'Thal2CP': {
-        'connection_rule': one_to_one_thal,
-        'connection_params': {'offset': 1000},
-        'syn_weight': 1,
-        'dynamics_params': 'Thal2CP.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'delay': 0.0,
-        'target_sections': ['dend']
-    },
-    'Thal2CS': {
-        'connection_rule': one_to_one_thal,
-        'connection_params': {'offset': 1000},
-        'syn_weight': 1,
-        'dynamics_params': 'Thal2CS.json', # same as 'Thal2CP.json'
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'delay': 0.0,
-        'target_sections': ['dend']
-    },
-    'Intbase2FSI': {
-        'connection_rule': one_to_one_intbase,
-        'connection_params': {'offset1': 4000, 'offset2': 8000},
-        'syn_weight': 1,
-        'dynamics_params': 'Intbase2FSI.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'delay': 0.0,
-        'target_sections': ['dend']
-    },
-    'Intbase2LTS': {
-        'connection_rule': one_to_one_intbase,
-        'connection_params': {'offset1': 4000, 'offset2': 8000},
-        'syn_weight': 1,
-        'dynamics_params': 'Intbase2LTS.json',
-        'distance_range': [min_conn_dist, max_conn_dist],
-        'delay': 0.0,
-        'target_sections': ['dend']
+        'dynamics_params': 'FSI2CP.json',
     }
 } # edges referenced by name
-
-# Will be called by conn.add_properties for the associated connection
-edge_add_properties = {
-    'syn_dist_delay_feng_section_default': {
-        'names': ['delay', 'sec_id', 'sec_x'],
-        'rule': syn_dist_delay_feng_section,
-        'rule_params': {'sec_x': 0.9},
-        'dtypes': [np.float, np.int32, np.float]
-    },
-    'syn_uniform_delay_section_default': {
-        'names': ['delay', 'sec_id', 'sec_x'],
-        'rule': syn_uniform_delay_section,
-        'rule_params': {'sec_x': 0.9},
-        'dtypes': [np.float, np.int32, np.float]
-    },
-    'section_id_placement': {
-        'names': ['sec_id', 'sec_x'],
-        'rule': section_id_placement,
-        'dtypes': [np.int32, np.float]
-    }
-}
 
 ################################################################################
 ############################  EDGE EFFECTS EDGES  ##############################
@@ -989,249 +523,7 @@ if edge_effects:
     # These rules are for edge effect edges. They should directly mimic the connections
     # created previously, re-use the params set above. This keeps our code DRY
     virt_edges = [
-    {   # FSI -> FSI Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['FSI']},
-            'target': {'pop_name': ['FSI']}
-        },
-        'param': 'FSI2FSI_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # FSI -> FSI Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['FSI']},
-            'target': {'pop_name': ['FSI']}
-        },
-        'param': 'FSI2FSI_rec',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # FSI -> CP Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['FSI']},
-            'target': {'pop_name': ['CP']}
-        },
-        'param': 'FSI2CP_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # FSI -> CP Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['FSI']},
-            'target': {'pop_name': ['CP']}
-        },
-        'param': 'FSI2CP_rec',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # FSI -> CS Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['FSI']},
-            'target': {'pop_name': ['CS']}
-        },
-        'param': 'FSI2CS_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # FSI -> CS Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['FSI']},
-            'target': {'pop_name': ['CS']}
-        },
-        'param': 'FSI2CS_rec',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # FSI -> LTS Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['FSI']},
-            'target': {'pop_name': ['LTS']}
-        },
-        'param': 'FSI2LTS_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # FSI -> LTS Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['FSI']},
-            'target': {'pop_name': ['LTS']}
-        },
-        'param': 'FSI2LTS_rec',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # LTS -> LTS Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['LTS']}
-        },
-        'param': 'LTS2LTS_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # LTS -> LTS Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source':  {'pop_name': ['LTS']},
-            'target': {'pop_name': ['LTS']}
-        },
-        'param': 'LTS2LTS_rec',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # LTS -> LTS Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['LTS']}
-        },
-        'param': 'LTS2LTS_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # LTS -> FSI Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['FSI']}
-        },
-        'param': 'LTS2FSI_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # LTS -> FSI Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['FSI']}
-        },
-        'param': 'LTS2FSI_rec',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # LTS -> CP Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['CP']}
-        },
-        'param': 'LTS2CP_rec',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # LTS -> CP Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['CP']}
-        },
-        'param': 'LTS2CP_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # LTS -> CS Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['CS']}
-        },
-        'param': 'LTS2CS_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # LTS -> CS Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['CS']}
-        },
-        'param': 'LTS2CS_rec',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CP -> FSI
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CP']},
-            'target': {'pop_name': ['FSI']}
-        },
-        'param': 'CP2FSI',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CS -> FSI
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CS']},
-            'target': {'pop_name': ['FSI']}
-        },
-        'param': 'CS2FSI',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CP -> LTS
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CP']},
-            'target': {'pop_name': ['LTS']}
-        },
-        'param': 'CP2LTS',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CS -> LTS
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CS']},
-            'target': {'pop_name': ['LTS']}
-        },
-        'param': 'CS2LTS',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CP -> CS
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CP']},
-            'target': {'pop_name': ['CS']}
-        },
-        'param': 'CP2CS',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CS -> CP
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CS']},
-            'target': {'pop_name': ['CP']}
-        },
-        'param': 'CS2CP',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CP -> CP Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CP']},
-            'target': {'pop_name': ['CP']}
-        },
-        'param': 'CP2CP_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CP -> CP Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CP']},
-            'target': {'pop_name': ['CP']}
-        },
-        'param': 'CP2CP_rec',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CS -> CS Unidirectional
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CS']},
-            'target': {'pop_name': ['CS']}
-        },
-        'param': 'CS2CS_uni',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    },
-    {   # CS -> CS Reciprocal
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['CS']},
-            'target': {'pop_name': ['CS']}
-        },
-        'param': 'CS2CS_rec',
-        'add_properties': 'syn_dist_delay_feng_section_default'
-    }
+        
 ]
 edge_definitions = edge_definitions + virt_edges
 ########################## END EDGE EFFECTS ##############################
@@ -1239,21 +531,21 @@ edge_definitions = edge_definitions + virt_edges
 
 ##########################################################################
 ############################ GAP JUNCTIONS ###############################
-net = NetworkBuilder("cortex")
-conn = net.add_gap_junctions(source={'pop_name': 'FSI'}, target={'pop_name': 'FSI'},
-            resistance=1500, target_sections=['somatic'],
-            connection_rule=perc_conn,
-            connection_params={'p': 0.4})
-conn._edge_type_properties['sec_id'] = 0
-conn._edge_type_properties['sec_x'] = 0.9
+# net = NetworkBuilder("cortex")
+# conn = net.add_gap_junctions(source={'pop_name': 'FSI'}, target={'pop_name': 'FSI'},
+#             resistance=1500, target_sections=['somatic'],
+#             connection_rule=perc_conn,
+#             connection_params={'p': 0.4})
+# conn._edge_type_properties['sec_id'] = 0
+# conn._edge_type_properties['sec_x'] = 0.9
 
-net = NetworkBuilder("cortex")
-conn = net.add_gap_junctions(source={'pop_name': 'LTS'}, target={'pop_name': 'LTS'},
-            resistance=1500, target_sections=['somatic'],
-            connection_rule=perc_conn,
-            connection_params={'p': 0.3})
-conn._edge_type_properties['sec_id'] = 0
-conn._edge_type_properties['sec_x'] = 0.9
+# net = NetworkBuilder("cortex")
+# conn = net.add_gap_junctions(source={'pop_name': 'LTS'}, target={'pop_name': 'LTS'},
+#             resistance=1500, target_sections=['somatic'],
+#             connection_rule=perc_conn,
+#             connection_params={'p': 0.3})
+# conn._edge_type_properties['sec_id'] = 0
+# conn._edge_type_properties['sec_x'] = 0.9
 
 
 ##########################################################################
@@ -1272,20 +564,21 @@ build_edges(networks, edge_definitions, edge_params, edge_add_properties, syn)
 save_networks(networks, network_dir)
 
 # Usually not necessary if you've already built your simulation config
-build_env_bionet(
-    base_dir = './',
-    network_dir = network_dir,
-    tstop = t_sim,
-    dt = dt,
-    report_vars = ['v'],
-    celsius = 31.0,
-    spikes_inputs=[
-        ('thalamus', './input/thalamus_base.h5'),
-        ('thalamus', './input/thalamus_short.h5'),
-        ('thalamus', './input/thalamus_long.h5'),  # Name of population which spikes will be generated for, file
-        ('Intbase', './input/Intbase.h5')
-    ],
-    components_dir='components',
-    config_file='config.json',
-    compile_mechanisms=False
-)
+if False:
+    build_env_bionet(
+        base_dir = './',
+        network_dir = network_dir,
+        tstop = t_sim,
+        dt = dt,
+        report_vars = ['v'],
+        celsius = 31.0,
+        spikes_inputs=[
+            ('thalamus', './input/thalamus_base.h5'),
+            ('thalamus', './input/thalamus_short.h5'),
+            ('thalamus', './input/thalamus_long.h5'),  # Name of population which spikes will be generated for, file
+            ('Intbase', './input/Intbase.h5')
+        ],
+        components_dir='components',
+        config_file='config.json',
+        compile_mechanisms=False
+    )
