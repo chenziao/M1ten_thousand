@@ -6,93 +6,12 @@ from functools import partial
 import pandas as pd
 import time
 
-all_synapses = pd.DataFrame([], columns=['source_gid', 'target_gid'])
-
 ##############################################################################
 ############################## CONNECT CELLS #################################
 
-def one_to_one(source, target):
-    sid = source.node_id
-    tid = target.node_id
-    nsyn = 1 if sid == tid else None
-    return nsyn
-
-def one_to_one_offset(source, target, offset=0):
-    sid = source.node_id
-    tid = target.node_id - offset
-    nsyn = 1 if sid == tid else None
-    return nsyn
-
-# TODO: use one_to_all iterator
-def one_to_one_thal(source, target, offset):
-    sid = source.node_id
-    tid = target.node_id
-    if sid >= 4000:
-        tid = tid - offset
-    nsyn = 1 if sid == tid else None
-    return nsyn
-
-# TODO: use one_to_all iterator
-def one_to_one_intbase(source, target, offset1, offset2):
-    sid = source.node_id
-    tid = target.node_id
-    if sid < 1000:
-        tid = tid - offset1
-    elif sid >= 1000:
-        tid = tid - offset2
-    nsyn = 1 if sid == tid else None
-    return nsyn
-
-
-# TODO: select based on cell types of a pair
-TARGET_SEC_ID = {
-        'CP': 1, 'CS': 1,
-        'CTH': 1, 'CC': 1,
-        'FSI': 0, 'LTS': 0
-    }
-
-def get_target_sec_id(source, target):
-    # 0 - Target soma, 1 - Target basal dendrite
-    sec_id = TARGET_SEC_ID.get(source['pop_name'], None)
-    if sec_id is None:
-        if source['model_type'] == 'virtual':
-            sec_id = 1
-            print('virtual cell') # Testing
-        else: # We really don't want a default case so we can catch errors
-            # return 0
-            import pdb; pdb.set_trace()
-    return sec_id
-
-def syn_dist_delay_feng_section(source, target, connector=None,
-                                sec_id=None, sec_x=0.9):
-    if sec_id is None:
-        sec_id = get_target_sec_id(source, target)
-    return syn_dist_delay_feng(source, target, connector), sec_id, sec_x
-
-def syn_uniform_delay_section(source, target, low=0.5, high=1,
-                              sec_id=None, sec_x=0.9):
-    if sec_id is None:
-        sec_id = get_target_sec_id(source, target)
-    return random.uniform(low, high), sec_id, sec_x
-
-def section_id_placement():
-    return 1, 0.6
-
-SYN_MIN_DELAY = 0.8  # ms
-SYN_VELOCITY = 1000.  # um/ms
-def syn_dist_delay_feng(source, target, connector):
-    if connector is None:
-        dist = euclid_dist(target['positions'], source['positions'])
-    else:
-        dist = connector.get_conn_prop(source.node_id, target.node_id)
-    del_fluc = 0.05 * random.randn()
-    delay = max(dist / SYN_VELOCITY + SYN_MIN_DELAY + del_fluc, 0.)
-    return delay
-
-
 def decision(prob, size=None):
     """
-    Make random decision based on input probability.
+    Make single random decision based on input probability.
     prob: scalar input
     Return bool array if size specified, otherwise scalar
     """
@@ -100,7 +19,7 @@ def decision(prob, size=None):
 
 def decisions(prob):
     """
-    Make random decision based on input probabilities.
+    Make multiple random decisions based on input probabilities.
     prob: iterable
     Return bool array of the same shape
     """
@@ -109,8 +28,11 @@ def decisions(prob):
 
 
 def euclid_dist(p1, p2):
-    """Euclidean distance between two points (coordinates in numpy)"""
-    dvec = p1 - p2
+    """
+    Euclidean distance between two points
+    p1, p2: Coordinates in numpy array
+    """
+    dvec = np.asarray(p1) - np.asarray(p2)
     return (dvec @ dvec) ** .5
 
 def spherical_dist(node1, node2):
@@ -118,45 +40,68 @@ def spherical_dist(node1, node2):
     return euclid_dist(node1['positions'], node2['positions']).item()
 
 def cylindrical_dist_z(node1, node2):
-    """Cylindircal distance between two input nodes (ignore z-axis)"""
+    """Cylindircal distance between two input nodes (ignoring z-axis)"""
     return euclid_dist(node1['positions'][:2], node2['positions'][:2]).item()
 
 
 NORM_COEF = (2 * np.pi) ** (-.5)  # coefficient of standard normal PDF
 
 def gaussian(x, mean=0., stdev=1., pmax=NORM_COEF):
-    """Gaussian function. Default is the PDF of normal distribution"""
+    """Gaussian function. Default is the PDF of standard normal distribution"""
     x = (x - mean) / stdev
     return pmax * np.exp(- x * x / 2)
 
 class GaussianDropoff(object):
     """
-    Connection probability is Gaussian function of the distance between cells,
-    using either spherical distance or cylindrical distance.
+    Object for calculating connection probability following a Gaussian function
+    of the distance between cells, using spherical or cylindrical distance.
+
+    Parameters:
+        mean, stdev: Parameters for the Gaussian function.
+        min_dist, max_dist: Distance range for any possible connection,
+            the support of the Gaussian function.
+        pmax: The maximum value of the Gaussian function at its mean parameter.
+        ptotal: Overall probability within distance range. If specified, ignore
+            input pmax, and calculate pmax. See calc_pmax_from_ptotal() method.
+        dist_type: spherical or cylindrical for distance metric.
+            Used when ptotal is specified.
+
+    Returns:
+        A callable object. When called with a single distance input,
+        returns the probability value.
+
+    TODO: Accept convergence and cell density information for calculating pmax.
     """
+
     def __init__(self, mean=0., stdev=1., min_dist=0., max_dist=np.inf,
                  pmax=1, ptotal=None, dist_type='spherical'):
         assert(min_dist >= 0 and min_dist < max_dist)
-        self.min_dist = min_dist  # minimum distance for connection
-        self.max_dist = max_dist  # maximum distance for connection
-        self.mean = mean  # mean of Gaussian function
-        self.stdev = stdev  # stdev of Gaussian function
-        self.dist_type = dist_type if dist_type in ['cylindrical'] else 'spherical'
-        self.ptotal = ptotal  # overall probability within distance range
-        # pmax: maximum of the Gaussian function
+        self.min_dist, self.max_dist = min_dist, max_dist
+        self.mean, self.stdev = mean, stdev
+        self.ptotal = ptotal
+        self.dist_type = dist_type if dist_type in \
+            ['cylindrical'] else 'spherical'
         self.pmax = pmax if ptotal is None else self.calc_pmax_from_ptotal()
         self.set_probability_func()
 
-    # TODO: accept convergence information
     def calc_pmax_from_ptotal(self):
-        """Calculate the pmax value such that the expected overall connection
+        """
+        Calculate the pmax value such that the expected overall connection
         probability to all possible targets within the distance range [r1, r2]=
         [min_dist, max_dist] equals ptotal, assuming homogeneous cell density.
-        That is, integral_r1^r2 {g(r)p(r)dr} = ptotal, where g is the gaussian
-        function with pmax, and p(r) is the population density at distance r.
+        That is, integral_r1^r2 {g(r)p(r)dr} = ptotal, where g is the Gaussian
+        function with pmax, p(r) is the cell density per unit distance at r.
         For cylindrical distance, p(r) = 2 * r / (r2^2 - r1^2)
         For spherical distance, p(r) = 3 * r^2 / (r2^3 - r1^3)
         The solution has a closed form, but only if resulting pmax <= 1.
+
+        Caveat: When the calculated pmax > 1, the actual overall probability
+        will be lower than expected and all cells within certain distance will
+        be always connected. This usually happens when the distance range is
+        wide. Because a large population will be included for evaluating
+        ptotal, and there will be a significant drop in the Gaussian function
+        as distance get further. So, a large pmax will be required to achieve
+        the desired ptotal.
         """
         pmax = self.ptotal * NORM_COEF
         mu, sig = self.mean, self.stdev
@@ -167,7 +112,8 @@ class GaussianDropoff(object):
             intgrl_2 = - sig * sig * (gaussian(x2) - gaussian(x1))
             pmax *= (r2**2 - r1**2) / 2 / (intgrl_1 + intgrl_2)
         else:  # self.dist_type == 'spherical'
-            intgrl_1 = sig * (sig**2 + mu**2) / 2 * (erf(x2 / 2**.5) - erf(x1 / 2**.5))
+            intgrl_1 = (sig * (sig**2 + mu**2) / 2 *
+                        (erf(x2 / 2**.5) - erf(x1 / 2**.5)))
             intgrl_2 = - sig * sig * ((2 * mu + sig * x2) * gaussian(x2) -
                                       (2 * mu + sig * x1) * gaussian(x1))
             pmax *= (r2 ** 3 - r1 ** 3) / 3 / (intgrl_1 + intgrl_2)
@@ -179,7 +125,8 @@ class GaussianDropoff(object):
         kwargs = {key: getattr(self, key) for key in keys}
         self.probability = partial(gaussian, **kwargs)
 
-        # Verify maximum probability (not self.pmax if self.mean outside distance range)
+        # Verify maximum probability
+        # (is not self.pmax if self.mean outside distance range)
         bounds = (self.min_dist, min(self.max_dist, 1e9))
         pmax = self.pmax if self.mean >= bounds[0] and self.mean <= bounds[1] \
             else self.probability(np.asarray(bounds)).max()
@@ -210,10 +157,155 @@ class GaussianDropoff(object):
 
 
 class ReciprocalConnector(object):
+    """
+    Object for buiilding connections in bmtk network model with reciprocal
+    probability within a single population (or between two populations).
+
+    Algorithm:
+        Create random connection for every pair of cells independently,
+        following a bivariate Bernoulli distribution. Each variable is 0 or 1,
+        whehter a connection exists in a forward or backward direction. There
+        are four possible outcomes for each pair, no connection, unidirectional
+        connection in two ways, and reciprocal connection. The probability of
+        each outcome forms a contingency table.
+            b a c k w a r d
+        f   ---------------
+        o  |   |  0  |  1  |  The total forward connection probability is
+        r  |---|-----|-----|  p0 = p10 + p11
+        w  | 0 | p00 | p01 |  The total backward connection probability is
+        a  |---|-----|-----|  p1 = p01 + p11
+        r  | 1 | p10 | p11 |  The reciprocal connection probability is
+        d   ---------------   pr = p11
+        The distribution can be characterized by three parameters, p0, p1, pr.
+        pr = p0 * p1 when two directions are independent. The correlation
+        coefficient rho between the two has a relation with pr as follow.
+        rho = (pr-p0*p1) / (p0*(1-p0)*p1*(1-p1))^(1/2)
+        Generating random outcome consists of two steps. Fisrt draw random
+        outcome for foward connection with probability p0. Then draw backward
+        outcome following a conditional probability given the forward outcome,
+        represented by p0, p1, and either pr or rho.
+
+    Use with BMTK:
+        1. Create this object with parameters.
+
+            connector = ReciprocalConnector(**parameters)
+
+        2. After network nodes are added to the BMTK network. Pass in the
+        Nodepool objects of source and target nodes using setup_nodes() method.
+
+            source = net.nodes(**source_filter)
+            target = net.nodes(**target_filter)
+            connector.setup_nodes(source, target)
+
+        3. Use edge_params() method to get the arguments for BMTK add_edges()
+        method including the `connection_rule` method.
+
+            net.add_edges(**connector.edge_params(),
+                          **other_source_to_target_edge_properties)
+
+        If the source and target are two different populations, do this again
+        for the backward connections (from target to source population).
+
+            net.add_edges(**connector.edge_params(),
+                          **other_target_to_source_edge_properties)
+
+        4. When executing net.build(), BMTK uses built-in `one_to_all` iterator
+        that calls the make_forward_connection() method to build connections
+        from source to target. If the two are different populations,
+        `all_to_one` iterator that calls the make_backward_connection() method
+        is then used to build connections from target to source.
+        During the initial iteration when make_forward_connection() is called,
+        the algorithm is run to generate a connection matrix for both forward
+        and backward connections. In the iterations afterward, it's only
+        assigning the generated connections in BMTK.
+
+    Parameters:
+        p0, p1: Probability of forward and backward connection. It can be a
+            constant or a deterministic function whose value must be within
+            range [0, 1], otherwise incorrect value may occur in the algorithm.
+        symmetric_p1: Whether p0 and p1 are identical. When the probabilities
+            are equal for forward and backward connections, set this to True,
+            Argument p1 will be ignored. This is forced to be True when the
+            population is recurrent, i.e., the source and target are the same.
+            This is forced to be False if symmetric_p1_arg is False.
+        p0_arg, p1_arg: Input argument(s) for p0 and p1 function, e.g.,
+            p0(p0_arg). It can be a constant or a deterministic function whose
+            input arguments are two node objects in BMTK, e.g.,
+            p0_arg(src_node,trg_node), p1_arg(trg_node,src_node). The latter
+            has reversed order since it's for backward connection. They are
+            usually distance between two nodes which is used for distance
+            dependent connection probability, where the order does not matter.
+            When p0 and p1 does not need inputs arguments, set p0_arg and
+            p1_arg to None as so by default. Functions p0 and p1 need to accept
+            one unused positional argument as placeholder, e.g., p0(*args), so
+            it does not raise an error when p0(None) is called.
+        symmetric_p1_arg: Whether p0_arg and p1_arg are identical. If this is
+            set to True, argument p1_arg will be ignored. This is forced to be
+            True when the population is recurrent.
+        pr, pr_arg: Probability of reciprocal connection and its input argument
+            when it is a function, similar to p0, p0_arg, p1, p1_arg. It can be
+            a function when it has an explicit relation with some node
+            properties such as distance.
+        estimate_rho: Whether estimate rho that result in an overall pr. This
+            is forced to be False if pr is a function or if rho is specified.
+            To estimate rho, all the pairs with possible connections, meaning
+            p0 and p1 are both non-zero for these pairs, are used to estimate
+            a value of rho that will result in an expected number of reciprocal
+            connections with the given pr. Note that pr is not over all pairs
+            of source and target cells but only those has a chance to connect,
+            e.g., for only pair of cells within some distance range. The
+            estimation is done before generating random connections. The values
+            of p0, p0_arg, p1, p1_arg can be cached during estimation of rho
+            and retrieved when generating random connections for performance.
+        rho: The correlation coefficient rho. When specified, do not estimate
+            it but instead use the given value throughout, pr will not be used.
+        n_syn0, n_syn1: Number of synapse in the forward and backward
+            connection if connected. It can be a constant or a (deterministic
+            or random) function whose input arguments are two node objects in
+            BMTK like p0_arg, p1_arg. n_syn1 is force to be the same as n_syn0
+            when the population is recurrent. Warning: The number must not be
+            greater than 255 since it will be converted to uint8 when written
+            into the connection matrix to reduce memory consumption.
+        autapses: Whether to allow connecting a cell to itself. Default: False.
+            This is ignored when the population is not recurrent.
+        cache_data: Whether to cache the values of p0, p0_arg, p1, p1_arg
+            during estimation of rho. This improves performance when
+            estimate_rho is True while not creating a significant overhead in
+            the opposite case. However, it requires large memory allocation
+            as the population size grows. Set it to False if there is a memory
+            issue.
+        verbose: Whether show verbose information in console.
+
+    Returns:
+        An object that works with BMTK to build edges in a network.
+
+    Important attributes:
+        source, target: NodePool objects for the source and target populations.
+        recurrent: Whether the source and target populations are the same.
+        callable_set: Set of arguments that are functions but not constants.
+        cache: ConnectorCache object for caching data.
+        conn_mat: Connection matrix
+        stage: Indicator of stage. 0 for forward and 1 for backward connection.
+        conn_prop: List of two dictionaries that stores properties of connected
+            pairs, for forward and backward connections respectively. In each
+            dictionary, each key is the source node id and the value is a
+            dictionary, where each key is the target node id that the source
+            node connects to, and the value is the value of p0_arg or p1_arg.
+            Example: [{sid0: {tid0: p0_arg0, tid1: p0_arg1, ...},
+                       sid1: {...}, sid2: {...}, ... },
+                      {tid2: {sid3: p1_arg0, sid4: p1_arg1, ...},
+                       tid3: {...}, tid4: {...}, ... }]
+            This is useful when properties of edges such as distance is used to
+            determine other edge properties such as delay. So the distance does
+            not need to be calculated repeatedly. The connector can be passed
+            as an argument for the functions that generates additional edge
+            properties, so that they can access the information here.
+    """
+
     def __init__(self, p0=0., p1=0., symmetric_p1=False,
                  p0_arg=None, p1_arg=None, symmetric_p1_arg=False,
                  pr=0., pr_arg=None, estimate_rho=True, rho=None,
-                 n_syn0=1, n_syn1=1, autapses=False, source=None, target=None,
+                 n_syn0=1, n_syn1=1, autapses=False,
                  cache_data=True, verbose=True):
         self.p0, self.p0_arg = p0, p0_arg
         self.p1, self.p1_arg = p1, p1_arg
@@ -224,13 +316,12 @@ class ReciprocalConnector(object):
         self.estimate_rho = estimate_rho and not callable(pr) and rho is None
         self.rho = rho
 
-        self.n_syn0, self.n_syn1 = n_syn0, n_syn1  # make sure <= 255
+        self.n_syn0, self.n_syn1 = n_syn0, n_syn1
         self.autapses = autapses
-        self.source, self.target = source, target
         self.cache = self.ConnectorCache(cache_data)
         self.verbose = verbose
 
-        self.conn_prop = [{}, {}]  # for forward and backward stages
+        self.conn_prop = [{}, {}]
         self.stage = 0
         self.iter_count = 0
 
@@ -243,10 +334,8 @@ class ReciprocalConnector(object):
             return  # skip if not at the initial stage
 
         # Update node pools
-        if source is not None:
-            self.source = source
-        if target is not None:
-            self.target = target
+        self.source = source
+        self.target = target
         if self.source is None or len(self.source) == 0:
             raise ValueError("Source nodes do not exists")
         if self.target is None or len(self.target) == 0:
@@ -273,8 +362,10 @@ class ReciprocalConnector(object):
             self.n_syn1 = self.n_syn0
 
     def edge_params(self):
+        """Create the arguments for BMTK add_edges() method"""
         if self.stage == 0:
-            params = {'iterator': 'one_to_all',
+            params = {'source': self.source, 'target': self.target,
+                      'iterator': 'one_to_all',
                       'connection_rule': self.make_forward_connection}
         else:
             params = {'source': self.target, 'target': self.source,
@@ -351,11 +442,14 @@ class ReciprocalConnector(object):
 
     @staticmethod
     def constant_function(val):
+        """Convert a constant to a constant function"""
         def constant(*arg):
             return val
         return constant
 
     def node_2_idx_input(self, var_func, reverse=False):
+        """Convert a function that accept nodes as input
+        to accept indices as input"""
         if reverse:
             def idx_2_var(j, i):
                 return var_func(self.target_list[j], self.source_list[i])
@@ -365,6 +459,7 @@ class ReciprocalConnector(object):
         return idx_2_var
 
     def iterate_pairs(self):
+        """Generate indices of source and target for each case"""
         if self.recurrent:
             if self.autapses:
                 for i in range(self.n_source):
@@ -390,6 +485,8 @@ class ReciprocalConnector(object):
         return p0_arg, p1_arg, p0, p1
 
     def setup_conditional_backward_probability(self):
+        """Create a function that calculates the conditional probability of
+        backward connection given the forward connection outcome 'cond'"""
         # For all cases, assume p0, p1, pr are all within [0, 1] already.
         self.wrong_pr = False
         if self.rho is None:
@@ -428,21 +525,23 @@ class ReciprocalConnector(object):
         self.cond_backward = cond_backward
 
     def add_conn_prop(self, src, trg, prop, stage=0):
+        """Store p0_arg and p1_arg for a connected pair"""
         sid = self.source_ids[src]
         tid = self.target_ids[trg]
         conn_dict = self.conn_prop[stage]
         if stage:
-            sid, tid = tid, sid  # during backward, from target to source population
+            sid, tid = tid, sid  # during backward, from target to source
         trg_dict = conn_dict.setdefault(sid, {})
         trg_dict[tid] = prop
 
     def get_conn_prop(self, sid, tid):
+        """Get stored value given node ids in a connection"""
         return self.conn_prop[self.stage][sid][tid]
 
     # *** A sequence of major methods executed during build ***
     def setup_variables(self):
         var_set = set(('p0', 'p0_arg', 'p1', 'p1_arg',
-                        'pr', 'pr_arg', 'n_syn0', 'n_syn1'))
+                       'pr', 'pr_arg', 'n_syn0', 'n_syn1'))
         callable_set = set()
         # Make constant variables constant functions
         for name in var_set:
@@ -483,6 +582,7 @@ class ReciprocalConnector(object):
         self.conn_mat = np.zeros(shape, dtype=np.uint8)  # 1 byte per entry
 
     def initial_all_to_all(self):
+        """The major part of the algorithm run at beginning of BMTK iterator"""
         if self.verbose:
             src_str, trg_str = self.get_nodes_info()
             print("\nStart building connection between: \n"
@@ -525,7 +625,7 @@ class ReciprocalConnector(object):
         # Setup function for calculating conditional backward probability
         self.setup_conditional_backward_probability()
 
-        # Make connections
+        # Make random connections
         cache.read_mode()
         possible_count = 0 if self.recurrent else np.zeros(3)
         for i, j in self.iterate_pairs():
@@ -537,12 +637,14 @@ class ReciprocalConnector(object):
                 possible_count += forward
             else:
                 possible_count += [forward, backward, forward and backward]
+
             # Make random decision
             if forward:
                 forward = decision(p0)
             if backward:
                 pr = self.pr(self.pr_arg(i, j))
                 backward = decision(self.cond_backward(forward, p0, p1, pr))
+
             # Make connection
             if forward:
                 n_forward = self.n_syn0(i, j)
@@ -579,11 +681,11 @@ class ReciprocalConnector(object):
             if self.stage == self.end_stage:
                 if self.verbose:
                     self.timer.report('Done! \nTime for building connections')
-                else:
-                    self.free_memory()
+                self.free_memory()
         return nsyns
 
     def make_forward_connection(self, source, targets, *args, **kwargs):
+        """Function to be called by BMTK iterator for forward connection"""
         # Initialize in the first iteration
         if self.iter_count == 0:
             self.stage = 0
@@ -594,6 +696,7 @@ class ReciprocalConnector(object):
         return self.make_connection()
 
     def make_backward_connection(self, targets, source, *args, **kwargs):
+        """Function to be called by BMTK iterator for backward connection"""
         if self.iter_count == 0:
             self.stage = 1
             if self.verbose:
@@ -601,6 +704,7 @@ class ReciprocalConnector(object):
         return self.make_connection()
 
     def free_memory(self):
+        """Free up memory after connections are built"""
         # Do not clear self.conn_prop if it will be used by conn.add_properties
         variables = ('conn_mat', 'source_list', 'target_list',
                      'source_ids', 'target_ids')
@@ -609,6 +713,7 @@ class ReciprocalConnector(object):
 
     # *** Helper functions for verbose ***
     def get_nodes_info(self):
+        """Get strings with source and target population information"""
         source_str = self.source.network_name + ': ' + self.source.filter_str
         target_str = self.target.network_name + ': ' + self.target.filter_str
         return source_str, target_str
@@ -640,6 +745,7 @@ class ReciprocalConnector(object):
         return n_conn, n_poss, n_pair, fraction
 
     def connection_number_info(self):
+        """Print connection numbers after connections built"""
         def arr2str(a, f):
             return ', '.join([f] * a.size) % tuple(a.tolist())
         n_conn, n_poss, n_pair, fraction = self.connection_number()
@@ -680,7 +786,86 @@ class Timer(object):
         print((msg + ": %.3f " + self.unit) % self.end())
 
 
-# TODO: Below are not updated or used
+# Below are functions yet to be updated
+def one_to_one(source, target):
+    sid = source.node_id
+    tid = target.node_id
+    nsyn = 1 if sid == tid else None
+    return nsyn
+
+def one_to_one_offset(source, target, offset=0):
+    sid = source.node_id
+    tid = target.node_id - offset
+    nsyn = 1 if sid == tid else None
+    return nsyn
+
+# TODO: use one_to_all iterator
+def one_to_one_thal(source, target, offset):
+    sid = source.node_id
+    tid = target.node_id
+    if sid >= 4000:
+        tid = tid - offset
+    nsyn = 1 if sid == tid else None
+    return nsyn
+
+# TODO: use one_to_all iterator
+def one_to_one_intbase(source, target, offset1, offset2):
+    sid = source.node_id
+    tid = target.node_id
+    if sid < 1000:
+        tid = tid - offset1
+    elif sid >= 1000:
+        tid = tid - offset2
+    nsyn = 1 if sid == tid else None
+    return nsyn
+
 def perc_conn(source, targets, perc=0.2):
     nsyn = 1 if random.rand() < perc else None
     return nsyn
+
+##############################################################################
+######################### ADDTIONAL EDGE PROPERTIES ##########################
+# TODO: select based on cell types of a pair
+TARGET_SEC_ID = {
+        'CP': 1, 'CS': 1,
+        'CTH': 1, 'CC': 1,
+        'FSI': 0, 'LTS': 0
+    }
+
+def get_target_sec_id(source, target):
+    # 0 - Target soma, 1 - Target basal dendrite
+    sec_id = TARGET_SEC_ID.get(source['pop_name'], None)
+    if sec_id is None:
+        if source['model_type'] == 'virtual':
+            sec_id = 1
+            print('virtual cell') # Testing
+        else: # We really don't want a default case so we can catch errors
+            # return 0
+            import pdb; pdb.set_trace()
+    return sec_id
+
+def syn_dist_delay_feng_section(source, target, connector=None,
+                                sec_id=None, sec_x=0.9):
+    if sec_id is None:
+        sec_id = get_target_sec_id(source, target)
+    return syn_dist_delay_feng(source, target, connector), sec_id, sec_x
+
+def syn_uniform_delay_section(source, target, low=0.5, high=1,
+                              sec_id=None, sec_x=0.9):
+    if sec_id is None:
+        sec_id = get_target_sec_id(source, target)
+    return random.uniform(low, high), sec_id, sec_x
+
+def section_id_placement():
+    return 1, 0.6
+
+SYN_MIN_DELAY = 0.8  # ms
+SYN_VELOCITY = 1000.  # um/ms
+def syn_dist_delay_feng(source, target, connector):
+    if connector is None:
+        dist = euclid_dist(target['positions'], source['positions'])
+    else:
+        dist = connector.get_conn_prop(source.node_id, target.node_id)
+    del_fluc = 0.05 * random.randn()
+    delay = max(dist / SYN_VELOCITY + SYN_MIN_DELAY + del_fluc, 0.)
+    return delay

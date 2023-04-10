@@ -60,6 +60,8 @@ numLTS_in5A, numLTS_in5B = num_prop([1, 1], num_LTS) # Even distribution of LTS 
 num_cells_5A = numCP_in5A + numCS_in5A + numFSI_in5A + numLTS_in5A
 num_cells_5B = numCP_in5B + numCS_in5B + numFSI_in5B + numLTS_in5B
 
+# TODO: Use poisson-disc sampling to generate positions with minimum distance limit,
+# possibly using scipy.stats.qmc.PoissonDisk (new in scipy version 1.10.0)
 pos_list_5A = np.random.rand(num_cells_5A, 3)
 pos_list_5A[:,0] = pos_list_5A[:,0] * (x_end - x_start) + x_start
 pos_list_5A[:,1] = pos_list_5A[:,1] * (y_end - y_start) + y_start
@@ -135,9 +137,18 @@ def build_edges(networks, edge_definitions, edge_params, edge_add_properties, sy
         if edge_properties:
             edge_properties_val = edge_add_properties[edge_properties].copy()
             if connector_class is not None:
+                # pass connector object to the rule for edge properties
                 edge_properties_val['rule'] = partial(
                     edge_properties_val['rule'], connector=connector)
             conn.add_properties(**edge_properties_val)
+
+def get_connector(param):
+    # get connector object stored in edge_params
+    edge_params_val = edge_params[param]
+    if 'connector_object' in edge_params_val:
+        return edge_params_val['connector_object']
+    else:
+        raise ValueError("No connector used in '%s'" % param)
 
 def save_networks(networks,network_dir):
     # Remove the existing network_dir directory
@@ -467,12 +478,6 @@ LTS_FSI_list = []
 # CS_CP_list = []
 # CP_CS_list = []
 
-def GetConnector(param):
-    edge_params_val = edge_params[param]
-    if 'connector_object' in edge_params_val:
-        return edge_params_val['connector_object']
-    else:
-        raise ValueError("No connector implemented in '%s'" % param)
 
 # edge_params should contain additional parameters to be added to add_edges calls
 # The following parameters for random synapse placement are not necessary
@@ -509,7 +514,7 @@ edge_params = {
         'dynamics_params': 'CP2FSI.json'
     },
     'FSI2CP': {
-        'connector_class': GetConnector,
+        'connector_class': get_connector,
         'connector_params': {'param': 'CP2FSI'},
         'syn_weight': 1,
         'dynamics_params': 'FSI2CP.json',
