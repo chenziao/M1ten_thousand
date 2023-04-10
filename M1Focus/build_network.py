@@ -6,8 +6,9 @@ from bmtk.builder.node_pool import NodePool
 from bmtk.utils.sim_setup import build_env_bionet
 import synapses
 from connectors import (
-    ReciprocalConnector, GaussianDropoff, spherical_dist, cylindrical_dist_z,
-    syn_dist_delay_feng_section, syn_uniform_delay_section, section_id_placement
+    spherical_dist, cylindrical_dist_z, GaussianDropoff, pr_2_rho,
+    ReciprocalConnector, UniformInRange, syn_dist_delay_feng_section,
+    syn_uniform_delay_section, section_id_placement
 )
 
 randseed = 123412
@@ -492,7 +493,8 @@ edge_params = {
                 stdev=131.48, min_dist=min_conn_dist, max_dist=max_conn_dist,
                 pmax=0.34, dist_type='spherical'),
             'p0_arg': spherical_dist,
-            'pr': 0.34 * 0.43, 'estimate_rho': True,
+            'pr': 0.34 * 0.43, 'estimate_rho': True
+            # 'rho': pr_2_rho(0.34, 0.34, 0.34 * 0.43)
             },
         'syn_weight': 1,
         'dynamics_params': 'FSI2FSI.json'
@@ -508,7 +510,8 @@ edge_params = {
                 stdev=95.98, min_dist=min_conn_dist, max_dist=max_conn_dist,
                 pmax=0.20, dist_type='spherical'),
             'p1_arg': spherical_dist,
-            'pr': 0.20 * 0.28, 'estimate_rho': True,
+            'pr': 0.20 * 0.28, 'estimate_rho': True
+            # 'rho': pr_2_rho(0.32, 0.20, 0.20 * 0.28)
             },
         'syn_weight': 1,
         'dynamics_params': 'CP2FSI.json'

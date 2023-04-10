@@ -1,9 +1,9 @@
+from abc import ABC, abstractmethod
 import numpy as np
 from numpy import random
 from scipy.special import erf
 from scipy.optimize import minimize_scalar
 from functools import partial
-import pandas as pd
 import time
 
 ##############################################################################
@@ -44,6 +44,61 @@ def cylindrical_dist_z(node1, node2):
     return euclid_dist(node1['positions'][:2], node2['positions'][:2]).item()
 
 
+class ProbabilityFunction(ABC):
+    """Abstract base classes for connection probability function"""
+
+    @abstractmethod
+    def probability(self, *arg, **kwargs):
+        """Allow numpy array input and return probability in numpy array"""
+        return NotImplemented
+
+    @abstractmethod
+    def __call__(self, *arg, **kwargs):
+        """Return probability within [0, 1] for single input"""
+        return NotImplemented
+
+    @abstractmethod
+    def decisions(self, *arg, **kwargs):
+        """Return bool array of decisions according probability"""
+        return NotImplemented
+
+
+class DistantDependentProbability(ProbabilityFunction):
+    """Base class for distance dependent probability"""
+    
+    def __init__(self, min_dist=0., max_dist=np.inf):
+        assert(min_dist >= 0 and min_dist < max_dist)
+        self.min_dist, self.max_dist = min_dist, max_dist
+
+    def __call__(self, dist):
+        """Return probability for single distance input"""
+        if dist >= self.min_dist and dist <= self.max_dist:
+            return self.probability(dist).item()
+        else:
+            return 0.
+
+    def decisions(self, dist):
+        """Return bool array of decisions given distance array"""
+        dist = np.asarray(dist)
+        dec = np.zeros(dist.shape, dtype=bool)
+        mask = (dist >= self.min_dist) & (dist <= self.max_dist)
+        dec[mask] = decisions(self.probability(dist[mask]))
+        return dec
+
+
+class UniformInRange(DistantDependentProbability):
+    """Constant probability within a distance range"""
+
+    def __init__(self, p=0., min_dist=0., max_dist=np.inf):
+        super().__init__(min_dist=min_dist, max_dist=max_dist)
+        self.p = np.array(p)
+        assert(self.p.size == 1)
+        assert(self.p >= 0. and self.p <= 1.)
+
+    def probability(self, dist):
+        return self.p
+
+
 NORM_COEF = (2 * np.pi) ** (-.5)  # coefficient of standard normal PDF
 
 def gaussian(x, mean=0., stdev=1., pmax=NORM_COEF):
@@ -51,7 +106,7 @@ def gaussian(x, mean=0., stdev=1., pmax=NORM_COEF):
     x = (x - mean) / stdev
     return pmax * np.exp(- x * x / 2)
 
-class GaussianDropoff(object):
+class GaussianDropoff(DistantDependentProbability):
     """
     Object for calculating connection probability following a Gaussian function
     of the distance between cells, using spherical or cylindrical distance.
@@ -75,8 +130,7 @@ class GaussianDropoff(object):
 
     def __init__(self, mean=0., stdev=1., min_dist=0., max_dist=np.inf,
                  pmax=1, ptotal=None, dist_type='spherical'):
-        assert(min_dist >= 0 and min_dist < max_dist)
-        self.min_dist, self.max_dist = min_dist, max_dist
+        super().__init__(min_dist=min_dist, max_dist=max_dist)
         self.mean, self.stdev = mean, stdev
         self.ptotal = ptotal
         self.dist_type = dist_type if dist_type in \
@@ -119,42 +173,39 @@ class GaussianDropoff(object):
             pmax *= (r2 ** 3 - r1 ** 3) / 3 / (intgrl_1 + intgrl_2)
         return pmax
 
+    def probability(self):
+        pass  # to be set up in set_probability_func()
+
     def set_probability_func(self):
         """Set up function for calculating probability"""
         keys = ['mean', 'stdev', 'pmax']
         kwargs = {key: getattr(self, key) for key in keys}
-        self.probability = partial(gaussian, **kwargs)
+        probability = partial(gaussian, **kwargs)
 
         # Verify maximum probability
         # (is not self.pmax if self.mean outside distance range)
         bounds = (self.min_dist, min(self.max_dist, 1e9))
         pmax = self.pmax if self.mean >= bounds[0] and self.mean <= bounds[1] \
-            else self.probability(np.asarray(bounds)).max()
+            else probability(np.asarray(bounds)).max()
         if pmax > 1:
-            d = minimize_scalar(lambda x: (self.probability(x) - 1)**2,
+            d = minimize_scalar(lambda x: (probability(x) - 1)**2,
                                 method='bounded', bounds=bounds).x
-            warn = ("Warning: Maximum probability=%.3f is greater than 1. "
-                    "Probability is 1 at distance %.3g.") % (pmax, d)
+            warn = ("\nWarning: Maximum probability=%.3f is greater than 1. "
+                    "Probability crosses 1 at distance %.3g.\n") % (pmax, d)
             if self.ptotal is not None:
                 warn += " ptotal may not be reached."
             print(warn)
-
-    def __call__(self, dist):
-        """Returns correct probability within [0, 1] for single input"""
-        if dist >= self.min_dist and dist <= self.max_dist:
-            prob = min(self.probability(dist).item(), 1.)
+            self.probability = lambda dist: np.fmin(probability(dist), 1.)
         else:
-            prob = 0.
-        return prob
+            self.probability = probability
 
-    def decisions(self, dist):
-        """Return bool array of decisions given distance array"""
-        dist = np.asarray(dist)
-        dec = np.zeros(dist.shape, dtype=bool)
-        mask = (dist >= self.min_dist) & (dist <= self.max_dist)
-        dec[mask] = decisions(self.probability(dist[mask]))
-        return dec
 
+def pr_2_rho(p0, p1, pr):
+    """Calculate correlation coefficient rho given reciprocal probability pr"""
+    for p in (p0, p1):
+        assert(p > 0 and p < 1)
+    assert(pr >= 0 and pr <= p0 and pr <= p1 and pr >= p0 + p1 - 1)
+    return (pr - p0 * p1) / (p0 * (1 - p0) * p1 * (1 - p1)) ** .5
 
 class ReciprocalConnector(object):
     """
@@ -223,6 +274,7 @@ class ReciprocalConnector(object):
         p0, p1: Probability of forward and backward connection. It can be a
             constant or a deterministic function whose value must be within
             range [0, 1], otherwise incorrect value may occur in the algorithm.
+            When p0, p1 are constant, the connection is homogenous.
         symmetric_p1: Whether p0 and p1 are identical. When the probabilities
             are equal for forward and backward connections, set this to True,
             Argument p1 will be ignored. This is forced to be True when the
@@ -259,6 +311,10 @@ class ReciprocalConnector(object):
             and retrieved when generating random connections for performance.
         rho: The correlation coefficient rho. When specified, do not estimate
             it but instead use the given value throughout, pr will not be used.
+            In cases where both p0 and p1 are simple functions, i.e., are
+            constant on their support, e.g., function UniformInRange(), the
+            estimation of rho will be equal to pr_2_rho(p0, p1, pr) where p0,
+            p1 are non-zero. Estimation is not necessary. Simply set rho.
         n_syn0, n_syn1: Number of synapse in the forward and backward
             connection if connected. It can be a constant or a (deterministic
             or random) function whose input arguments are two node objects in
@@ -318,7 +374,7 @@ class ReciprocalConnector(object):
 
         self.n_syn0, self.n_syn1 = n_syn0, n_syn1
         self.autapses = autapses
-        self.cache = self.ConnectorCache(cache_data)
+        self.cache = self.ConnectorCache(cache_data and self.estimate_rho)
         self.verbose = verbose
 
         self.conn_prop = [{}, {}]
@@ -424,13 +480,13 @@ class ReciprocalConnector(object):
                     for func_name, out_len in zip(self._output, output_len):
                         fetch = out_len > 0
                         if not fetch:
-                            print("Warning: Cache did not work properly for "
-                                  + func_name)
+                            print("\nWarning: Cache did not work properly for "
+                                  + func_name + '\n')
                         self.fetch_output(func_name, fetch)
                     self.iter_count = 0
                 else:
                     # if output not correct, disable and use original function
-                    print("Warning: Cache did not work properly.")
+                    print("\nWarning: Cache did not work properly.\n")
                     for func_name in self.cache_dict:
                         self.fetch_output(func_name, False)
                     self.enable = False
@@ -609,18 +665,18 @@ class ReciprocalConnector(object):
             if norm_fac_sum > 0:
                 rho = (self.pr() * n - p0p1_sum) / norm_fac_sum
                 if abs(rho) > 1:
-                    print("Warning: Estimated value of rho=%.3f "
+                    print("\nWarning: Estimated value of rho=%.3f "
                           "outside the range [-1, 1]." % rho)
                     rho = np.clip(rho, -1, 1).item()
-                    print("Force rho to be %.0f." % rho)
+                    print("Force rho to be %.0f.\n" % rho)
                 elif self.verbose:
                     print("Estimated value of rho=%.3f" % rho)
                 self.rho = rho
             else:
                 self.rho = 0
 
-        if self.verbose:
-            self.timer.report('Time for estimating rho')
+            if self.verbose:
+                self.timer.report('Time for estimating rho')
 
         # Setup function for calculating conditional backward probability
         self.setup_conditional_backward_probability()
@@ -665,7 +721,7 @@ class ReciprocalConnector(object):
         if self.verbose:
             self.timer.report('Total time for creating connection matrix')
             if self.wrong_pr:
-                print("Warning: Value of 'pr' outside of the bounds occurs.")
+                print("\nWarning: Value of 'pr' outside the bounds occurs.\n")
             self.connection_number_info()
 
     def make_connection(self):
