@@ -6,9 +6,10 @@ from bmtk.builder.node_pool import NodePool
 from bmtk.utils.sim_setup import build_env_bionet
 import synapses
 from connectors import (
-    spherical_dist, cylindrical_dist_z, GaussianDropoff, pr_2_rho,
-    ReciprocalConnector, UniformInRange, syn_dist_delay_feng_section,
-    syn_uniform_delay_section, section_id_placement
+    spherical_dist, cylindrical_dist_z, GaussianDropoff, UniformInRange,
+    pr_2_rho, ReciprocalConnector, UnidirectionConnector,
+    syn_dist_delay_feng_section, syn_uniform_delay_section,
+    section_id_placement
 )
 
 randseed = 123412
@@ -103,11 +104,12 @@ def build_networks(network_definitions: list) -> dict:
 
     return networks
 
-def build_edges(networks, edge_definitions, edge_params, edge_add_properties, syn=None):
+def build_edges(networks, edge_definitions, edge_params, edge_add_properties, syn):
     # Builds the edges for each network given a set of 'edge_definitions'
     # edge_definitions examples shown later in the code
     for edge in edge_definitions:
-        net = networks[edge['network']]
+        network_name = edge['network']
+        net = networks[network_name]
         # edge arguments
         edge_params_val = edge_params[edge['param']].copy()
         # get synapse template file
@@ -116,10 +118,11 @@ def build_edges(networks, edge_definitions, edge_params, edge_add_properties, sy
         # get source and target nodes
         edge_src_trg = edge.get('edge')
         if edge_src_trg:
-            src_net = edge_src_trg.get('source_network', net)
-            trg_net = edge_src_trg.get('target_network', net)
-            source = src_net.nodes(**edge_src_trg['source'])
-            target = trg_net.nodes(**edge_src_trg['target'])
+            edge_src_trg = edge_src_trg.copy()
+            src_net = edge_src_trg.pop('source_network', network_name)
+            trg_net = edge_src_trg.pop('target_network', network_name)
+            source = networks[src_net].nodes(**edge_src_trg['source'])
+            target = networks[trg_net].nodes(**edge_src_trg['target'])
             edge_params_val.update({'source': source, 'target': target})
         # use connector class
         connector_class = edge_params_val.pop('connector_class', None)
@@ -391,7 +394,7 @@ network_definitions.extend(shell_network)
 
 # Build and save our NetworkBuilder dictionary
 networks = build_networks(network_definitions)
-# import pdb; pdb.set_trace()
+
 
 ##########################################################################
 #############################  BUILD EDGES  ##############################
@@ -464,22 +467,6 @@ edge_definitions = [
 
 ]
 
-# A few connectors require a list for tracking synapses that are recurrent, declare them here
-FSI_FSI_list = []
-FSI_CP_list = []
-FSI_CS_list = []
-CP_CP_list = []
-CS_CS_list = []
-LTS_LTS_list = []
-LTS_CP_list = []
-CP_LTS_list = []
-CS_LTS_list = []
-FSI_LTS_list = []
-LTS_FSI_list = []
-# CS_CP_list = []
-# CP_CS_list = []
-
-
 # edge_params should contain additional parameters to be added to add_edges calls
 # The following parameters for random synapse placement are not necessary
 # if conn.add_properties specifies sec_id and sec_x.
@@ -493,8 +480,8 @@ edge_params = {
                 stdev=131.48, min_dist=min_conn_dist, max_dist=max_conn_dist,
                 pmax=0.34, dist_type='spherical'),
             'p0_arg': spherical_dist,
-            'pr': 0.34 * 0.43, 'estimate_rho': True
-            # 'rho': pr_2_rho(0.34, 0.34, 0.34 * 0.43)
+            # 'pr': 0.34 * 0.43, 'estimate_rho': True
+            'rho': pr_2_rho(0.34, 0.34, 0.34 * 0.43)
             },
         'syn_weight': 1,
         'dynamics_params': 'FSI2FSI.json'
@@ -510,8 +497,8 @@ edge_params = {
                 stdev=95.98, min_dist=min_conn_dist, max_dist=max_conn_dist,
                 pmax=0.20, dist_type='spherical'),
             'p1_arg': spherical_dist,
-            'pr': 0.20 * 0.28, 'estimate_rho': True
-            # 'rho': pr_2_rho(0.32, 0.20, 0.20 * 0.28)
+            # 'pr': 0.20 * 0.28, 'estimate_rho': True
+            'rho': pr_2_rho(0.32, 0.20, 0.20 * 0.28)
             },
         'syn_weight': 1,
         'dynamics_params': 'CP2FSI.json'
@@ -522,42 +509,88 @@ edge_params = {
         'syn_weight': 1,
         'dynamics_params': 'FSI2CP.json',
     }
-} # edges referenced by name
+}  # edges referenced by name
 
-################################################################################
-############################  EDGE EFFECTS EDGES  ##############################
+
+##############################################################################
+############################  EDGE EFFECTS EDGES  ############################
 
 if edge_effects:
-    # These rules are for edge effect edges. They should directly mimic the connections
-    # created previously, re-use the params set above. This keeps our code DRY
-    virt_edges = [
-        
-]
-edge_definitions = edge_definitions + virt_edges
+    # These rules are for edge effect edges. They should mimic the connections
+    # created previously but using unidirectional connector.
+    # Re-use the connector params set above.
+    shell_edges = [
+        {   # FSI -> FSI Unidirection
+            'network': 'cortex',
+            'edge': {
+                'source_network': 'shell',
+                'source': {'pop_name': ['FSI']},
+                'target': {'pop_name': ['FSI']}
+            },
+            'param': 'shell_FSI2FSI',
+            'add_properties': 'syn_dist_delay_feng_section_default'
+        },
+        {   # CP -> FSI Unidirectional
+            'network': 'cortex',
+            'edge': {
+                'source_network': 'shell',
+                'source': {'pop_name': ['CP']},
+                'target': {'pop_name': ['FSI']}
+            },
+            'param': 'shell_CP2FSI',
+            'add_properties': 'syn_dist_delay_feng_section_default'
+        },
+        {   # FSI -> CP Unidirectional
+            'network': 'cortex',
+            'edge': {
+                'source_network': 'shell',
+                'source': {'pop_name': ['FSI']},
+                'target': {'pop_name': ['CP']}
+            },
+            'param': 'shell_FSI2CP',
+            'add_properties': 'syn_dist_delay_feng_section_default'
+        }
+    ]
+    edge_definitions.extend(shell_edges)
+
+    shell_edge_params = {
+        'shell_FSI2FSI': {
+            'connector_class': UnidirectionConnector,
+            'connector_params': {
+                'p': GaussianDropoff(
+                    stdev=131.48, min_dist=min_conn_dist, max_dist=max_conn_dist,
+                    pmax=0.34, dist_type='spherical'),
+                'p_arg': spherical_dist,
+                },
+            'syn_weight': 1,
+            'dynamics_params': 'FSI2FSI.json'
+        },
+        'shell_CP2FSI': {
+            'connector_class': UnidirectionConnector,
+            'connector_params': {
+                'p': GaussianDropoff(
+                    stdev=99.25, min_dist=min_conn_dist, max_dist=max_conn_dist,
+                    pmax=0.32, dist_type='cylindrical'),
+                'p_arg': cylindrical_dist_z,
+                },
+            'syn_weight': 1,
+            'dynamics_params': 'CP2FSI.json'
+        },
+        'shell_FSI2CP': {
+            'connector_class': UnidirectionConnector,
+            'connector_params': {
+                'p': GaussianDropoff(
+                    stdev=95.98, min_dist=min_conn_dist, max_dist=max_conn_dist,
+                    pmax=0.20, dist_type='spherical'),
+                'p_arg': spherical_dist,
+                },
+            'syn_weight': 1,
+            'dynamics_params': 'FSI2CP.json',
+        }
+    }  # edges referenced by name
+    edge_params.update(shell_edge_params)
 ########################## END EDGE EFFECTS ##############################
 ##########################################################################
-
-##########################################################################
-############################ GAP JUNCTIONS ###############################
-# net = NetworkBuilder("cortex")
-# conn = net.add_gap_junctions(source={'pop_name': 'FSI'}, target={'pop_name': 'FSI'},
-#             resistance=1500, target_sections=['somatic'],
-#             connection_rule=perc_conn,
-#             connection_params={'p': 0.4})
-# conn._edge_type_properties['sec_id'] = 0
-# conn._edge_type_properties['sec_x'] = 0.9
-
-# net = NetworkBuilder("cortex")
-# conn = net.add_gap_junctions(source={'pop_name': 'LTS'}, target={'pop_name': 'LTS'},
-#             resistance=1500, target_sections=['somatic'],
-#             connection_rule=perc_conn,
-#             connection_params={'p': 0.3})
-# conn._edge_type_properties['sec_id'] = 0
-# conn._edge_type_properties['sec_x'] = 0.9
-
-
-##########################################################################
-###############################  BUILD  ##################################
 
 # Load synapse dictionaries
 # see synapses.py - loads each json's in components/synaptic_models into a
@@ -567,6 +600,46 @@ syn = synapses.syn_params_dicts()
 
 # Build your edges into the networks
 build_edges(networks, edge_definitions, edge_params, edge_add_properties, syn)
+
+##########################################################################
+############################ GAP JUNCTIONS ###############################
+# FSI
+net = networks['cortex']
+population = net.nodes(pop_name='FSI')
+
+gap_junc_FSI = UnidirectionConnector(
+    p=UniformInRange(
+        p=0.4, min_dist=min_conn_dist, max_dist=max_conn_dist
+        ),
+    p_arg=spherical_dist, n_syn=1
+)
+gap_junc_FSI.setup_nodes(source=population, target=population)
+
+conn = net.add_gap_junctions(resistance=1500, target_sections=None,
+                             **gap_junc_FSI.edge_params())
+conn._edge_type_properties['sec_id'] = 0
+conn._edge_type_properties['sec_x'] = 0.9
+
+# LTS
+net = networks['cortex']
+population = net.nodes(pop_name='LTS')
+
+gap_junc_LTS = UnidirectionConnector(
+    p=UniformInRange(
+        p=0.3, min_dist=min_conn_dist, max_dist=max_conn_dist
+        ),
+    p_arg=spherical_dist, n_syn=1
+)
+gap_junc_LTS.setup_nodes(source=population, target=population)
+
+conn = net.add_gap_junctions(resistance=1500, target_sections=None,
+                             **gap_junc_LTS.edge_params())
+conn._edge_type_properties['sec_id'] = 0
+conn._edge_type_properties['sec_x'] = 0.9
+
+##########################################################################
+###############################  BUILD  ##################################
+
 
 # Save the network into the appropriate network dir
 save_networks(networks, network_dir)

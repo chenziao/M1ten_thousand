@@ -45,7 +45,7 @@ def cylindrical_dist_z(node1, node2):
 
 
 class ProbabilityFunction(ABC):
-    """Abstract base classes for connection probability function"""
+    """Abstract base class for connection probability function"""
 
     @abstractmethod
     def probability(self, *arg, **kwargs):
@@ -200,6 +200,24 @@ class GaussianDropoff(DistantDependentProbability):
             self.probability = probability
 
 
+class AbstractConnector(ABC):
+    """Abstract base class for connectors"""
+    @abstractmethod
+    def setup_nodes(self, source=None, target=None):
+        return NotImplemented
+
+    @abstractmethod
+    def edge_params(self, source=None, target=None):
+        return NotImplemented
+
+    @staticmethod
+    def constant_function(val):
+        """Convert a constant to a constant function"""
+        def constant(*arg):
+            return val
+        return constant
+
+
 def pr_2_rho(p0, p1, pr):
     """Calculate correlation coefficient rho given reciprocal probability pr"""
     for p in (p0, p1):
@@ -207,7 +225,7 @@ def pr_2_rho(p0, p1, pr):
     assert(pr >= 0 and pr <= p0 and pr <= p1 and pr >= p0 + p1 - 1)
     return (pr - p0 * p1) / (p0 * (1 - p0) * p1 * (1 - p1)) ** .5
 
-class ReciprocalConnector(object):
+class ReciprocalConnector(AbstractConnector):
     """
     Object for buiilding connections in bmtk network model with reciprocal
     probability within a single population (or between two populations).
@@ -495,13 +513,6 @@ class ReciprocalConnector(object):
         def next_it(self):
             if self.enable:
                 self.iter_count += 1
-
-    @staticmethod
-    def constant_function(val):
-        """Convert a constant to a constant function"""
-        def constant(*arg):
-            return val
-        return constant
 
     def node_2_idx_input(self, var_func, reverse=False):
         """Convert a function that accept nodes as input
@@ -842,6 +853,113 @@ class Timer(object):
         print((msg + ": %.3f " + self.unit) % self.end())
 
 
+class UnidirectionConnector(AbstractConnector):
+    """
+    Object for buiilding unidirectional connections in bmtk network model with
+    given probability within a single population (or between two populations).
+    """
+
+    def __init__(self, p=0., p_arg=None, n_syn=1, verbose=True):
+        self.p, self.p_arg = p, p_arg
+        self.n_syn = n_syn
+        self.verbose = verbose
+        self.conn_prop = {}
+        self.iter_count = 0
+
+    # *** Two methods executed during bmtk edge creation net.add_edges() ***
+    def setup_nodes(self, source=None, target=None):
+        """Must run this before building connections"""
+        # Update node pools
+        self.source = source
+        self.target = target
+        if self.source is None or len(self.source) == 0:
+            raise ValueError("Source nodes do not exists")
+        if self.target is None or len(self.target) == 0:
+            raise ValueError("Target nodes do not exists")
+        self.n_pair = len(self.source) * len(self.target)
+
+    def edge_params(self):
+        """Create the arguments for BMTK add_edges() method"""
+        params = {'source': self.source, 'target': self.target,
+                  'iterator': 'one_to_one',
+                  'connection_rule': self.make_connection}
+        return params
+
+    # *** Methods executed during bmtk network.build() ***
+    # *** Helper functions ***
+    def add_conn_prop(self, sid, tid, prop):
+        """Store p0_arg and p1_arg for a connected pair"""
+        trg_dict = self.conn_prop.setdefault(sid, {})
+        trg_dict[tid] = prop
+
+    def get_conn_prop(self, sid, tid):
+        """Get stored value given node ids in a connection"""
+        return self.conn_prop[sid][tid]
+
+    def setup_variables(self):
+        """Make constant variables constant functions"""
+        var_set = set(('p', 'p_arg', 'n_syn'))
+        for name in var_set:
+            var = getattr(self, name)
+            if not callable(var):
+                setattr(self, name, self.constant_function(var))
+
+    def initialize(self):
+        self.setup_variables()
+        self.n_conn = 0
+        self.n_poss = 0
+        if self.verbose:
+            self.timer = Timer('ms')
+
+    def make_connection(self, source, target, *args, **kwargs):
+        """Assign number of synapses per iteration using one_to_one iterator"""
+        # Initialize in the first iteration
+        if self.iter_count == 0:
+            if self.verbose:
+                src_str, trg_str = self.get_nodes_info()
+                print("\nStart building connection \n from "
+                      + src_str + "\n to " + trg_str)
+            self.initialize()
+
+        # Make random connections
+        p_arg = self.p_arg(source, target)
+        p = self.p(p_arg)
+        possible = p > 0
+        self.n_poss += possible
+        if possible and decision(p):
+            nsyns = self.n_syn(source, target)
+            self.add_conn_prop(source.node_id, target.node_id, p_arg)
+            self.n_conn += 1
+        else:
+            nsyns = 0
+
+        self.iter_count += 1
+
+        # Detect end of iteration
+        if self.iter_count == self.n_pair:
+            if self.verbose:
+                self.connection_number_info()
+                self.timer.report('Done! \nTime for building connections')
+        return nsyns
+
+    # *** Helper functions for verbose ***
+    def get_nodes_info(self):
+        """Get strings with source and target population information"""
+        source_str = self.source.network_name + ': ' + self.source.filter_str
+        target_str = self.target.network_name + ': ' + self.target.filter_str
+        return source_str, target_str
+
+    def connection_number_info(self):
+        """Print connection numbers after connections built"""
+        print("Number of connected pairs: %d" % self.n_conn)
+        print("Number of possible connections: %d" % self.n_poss)
+        print("Fraction of connected pairs in possible ones: %.2f%%)"
+              % (100. * self.n_conn / self.n_poss) if self.n_poss else 0.)
+        print("Number of total pairs: %d" % self.n_pair)
+        print("Fraction of connected pairs in all pairs: %.2f%%\n"
+              % (100. * self.n_conn / self.n_pair))
+
+
 # Below are functions yet to be updated
 def one_to_one(source, target):
     sid = source.node_id
@@ -873,10 +991,6 @@ def one_to_one_intbase(source, target, offset1, offset2):
     elif sid >= 1000:
         tid = tid - offset2
     nsyn = 1 if sid == tid else None
-    return nsyn
-
-def perc_conn(source, targets, perc=0.2):
-    nsyn = 1 if random.rand() < perc else None
     return nsyn
 
 ##############################################################################
