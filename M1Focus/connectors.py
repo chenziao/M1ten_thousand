@@ -9,6 +9,7 @@ import time
 ##############################################################################
 ############################## CONNECT CELLS #################################
 
+# Utility Functions
 def decision(prob, size=None):
     """
     Make single random decision based on input probability.
@@ -16,6 +17,7 @@ def decision(prob, size=None):
     Return bool array if size specified, otherwise scalar
     """
     return (random.rand() if size is None else random.rand(size)) < prob
+
 
 def decisions(prob):
     """
@@ -35,15 +37,18 @@ def euclid_dist(p1, p2):
     dvec = np.asarray(p1) - np.asarray(p2)
     return (dvec @ dvec) ** .5
 
+
 def spherical_dist(node1, node2):
     """Spherical distance between two input nodes"""
     return euclid_dist(node1['positions'], node2['positions']).item()
+
 
 def cylindrical_dist_z(node1, node2):
     """Cylindircal distance between two input nodes (ignoring z-axis)"""
     return euclid_dist(node1['positions'][:2], node2['positions'][:2]).item()
 
 
+# Probability Classes
 class ProbabilityFunction(ABC):
     """Abstract base class for connection probability function"""
 
@@ -65,7 +70,7 @@ class ProbabilityFunction(ABC):
 
 class DistantDependentProbability(ProbabilityFunction):
     """Base class for distance dependent probability"""
-    
+
     def __init__(self, min_dist=0., max_dist=np.inf):
         assert(min_dist >= 0 and min_dist < max_dist)
         self.min_dist, self.max_dist = min_dist, max_dist
@@ -106,6 +111,7 @@ def gaussian(x, mean=0., stdev=1., pmax=NORM_COEF):
     x = (x - mean) / stdev
     return pmax * np.exp(- x * x / 2)
 
+
 class GaussianDropoff(DistantDependentProbability):
     """
     Object for calculating connection probability following a Gaussian function
@@ -118,6 +124,8 @@ class GaussianDropoff(DistantDependentProbability):
         pmax: The maximum value of the Gaussian function at its mean parameter.
         ptotal: Overall probability within distance range. If specified, ignore
             input pmax, and calculate pmax. See calc_pmax_from_ptotal() method.
+        ptotal_dist_range: Distance range for calculating pmax when ptotal is
+        specified. If not specified, set to range (min_dist, max_dist).
         dist_type: spherical or cylindrical for distance metric.
             Used when ptotal is specified.
 
@@ -129,10 +137,13 @@ class GaussianDropoff(DistantDependentProbability):
     """
 
     def __init__(self, mean=0., stdev=1., min_dist=0., max_dist=np.inf,
-                 pmax=1, ptotal=None, dist_type='spherical'):
+                 pmax=1, ptotal=None, ptotal_dist_range=None,
+                 dist_type='spherical'):
         super().__init__(min_dist=min_dist, max_dist=max_dist)
         self.mean, self.stdev = mean, stdev
         self.ptotal = ptotal
+        self.ptotal_dist_range = (min_dist, max_dist) \
+            if ptotal_dist_range is None else ptotal_dist_range
         self.dist_type = dist_type if dist_type in \
             ['cylindrical'] else 'spherical'
         self.pmax = pmax if ptotal is None else self.calc_pmax_from_ptotal()
@@ -142,7 +153,7 @@ class GaussianDropoff(DistantDependentProbability):
         """
         Calculate the pmax value such that the expected overall connection
         probability to all possible targets within the distance range [r1, r2]=
-        [min_dist, max_dist] equals ptotal, assuming homogeneous cell density.
+        `ptotal_dist_range` equals ptotal, assuming homogeneous cell density.
         That is, integral_r1^r2 {g(r)p(r)dr} = ptotal, where g is the Gaussian
         function with pmax, p(r) is the cell density per unit distance at r.
         For cylindrical distance, p(r) = 2 * r / (r2^2 - r1^2)
@@ -159,7 +170,7 @@ class GaussianDropoff(DistantDependentProbability):
         """
         pmax = self.ptotal * NORM_COEF
         mu, sig = self.mean, self.stdev
-        r1, r2 = self.min_dist, self.max_dist
+        r1, r2 = self.ptotal_dist_range[:2]
         x1, x2 = (r1 - mu) / sig, (r2 - mu) / sig  # normalized distance
         if self.dist_type == 'cylindrical':
             intgrl_1 = sig * mu / 2 * (erf(x2 / 2**.5) - erf(x1 / 2**.5))
@@ -200,15 +211,37 @@ class GaussianDropoff(DistantDependentProbability):
             self.probability = probability
 
 
+# Connector Classes
 class AbstractConnector(ABC):
     """Abstract base class for connectors"""
     @abstractmethod
     def setup_nodes(self, source=None, target=None):
+        """After network nodes are added to the BMTK network. Pass in the
+        Nodepool objects of source and target nodes using this method.
+        Must run this before building connections."""
         return NotImplemented
 
     @abstractmethod
-    def edge_params(self, source=None, target=None):
+    def edge_params(self, **kwargs):
+        """Create the arguments for BMTK add_edges() method including the
+        `connection_rule` method."""
         return NotImplemented
+
+    @staticmethod
+    def is_same_pop(source, target, quick=True):
+        """Whether two NodePool objects direct to the same population"""
+        if quick:
+            # Quick check (compare filter conditions)
+            same = (source.network_name == target.network_name and
+                    source._NodePool__properties ==
+                    target._NodePool__properties)
+        else:
+            # Strict check (compare all nodes)
+            same = (source.network_name == target.network_name and
+                    len(source) == len(target) and
+                    all([s.node_id == t.node_id
+                         for s, t in zip(source, target)]))
+        return same
 
     @staticmethod
     def constant_function(val):
@@ -218,12 +251,38 @@ class AbstractConnector(ABC):
         return constant
 
 
+# Helper class
+class Timer(object):
+    def __init__(self, unit='sec'):
+        if unit == 'ms':
+            self.scale = 1e3
+        elif unit == 'us':
+            self.scale = 1e6
+        elif unit == 'min':
+            self.scale = 1 / 60
+        else:
+            self.scale = 1
+            unit = 'sec'
+        self.unit = unit
+        self.start()
+
+    def start(self):
+        self._start = time.perf_counter()
+
+    def end(self):
+        return (time.perf_counter() - self._start) * self.scale
+
+    def report(self, msg='Run time'):
+        print((msg + ": %.3f " + self.unit) % self.end())
+
+
 def pr_2_rho(p0, p1, pr):
     """Calculate correlation coefficient rho given reciprocal probability pr"""
     for p in (p0, p1):
         assert(p > 0 and p < 1)
     assert(pr >= 0 and pr <= p0 and pr <= p1 and pr >= p0 + p1 - 1)
     return (pr - p0 * p1) / (p0 * (1 - p0) * p1 * (1 - p1)) ** .5
+
 
 class ReciprocalConnector(AbstractConnector):
     """
@@ -333,7 +392,7 @@ class ReciprocalConnector(AbstractConnector):
             constant on their support, e.g., function UniformInRange(), the
             estimation of rho will be equal to pr_2_rho(p0, p1, pr) where p0,
             p1 are non-zero. Estimation is not necessary. Simply set rho.
-        n_syn0, n_syn1: Number of synapse in the forward and backward
+        n_syn0, n_syn1: Number of synapses in the forward and backward
             connection if connected. It can be a constant or a (deterministic
             or random) function whose input arguments are two node objects in
             BMTK like p0_arg, p1_arg. n_syn1 is force to be the same as n_syn0
@@ -354,6 +413,7 @@ class ReciprocalConnector(AbstractConnector):
         An object that works with BMTK to build edges in a network.
 
     Important attributes:
+        vars: Dictionary that stores part of the original input parameters.
         source, target: NodePool objects for the source and target populations.
         recurrent: Whether the source and target populations are the same.
         callable_set: Set of arguments that are functions but not constants.
@@ -376,21 +436,21 @@ class ReciprocalConnector(AbstractConnector):
             properties, so that they can access the information here.
     """
 
-    def __init__(self, p0=0., p1=0., symmetric_p1=False,
+    def __init__(self, p0=1., p1=1., symmetric_p1=False,
                  p0_arg=None, p1_arg=None, symmetric_p1_arg=False,
                  pr=0., pr_arg=None, estimate_rho=True, rho=None,
                  n_syn0=1, n_syn1=1, autapses=False,
                  cache_data=True, verbose=True):
-        self.p0, self.p0_arg = p0, p0_arg
-        self.p1, self.p1_arg = p1, p1_arg
+        var_set = set(('p0', 'p0_arg', 'p1', 'p1_arg',
+                       'pr', 'pr_arg', 'n_syn0', 'n_syn1'))
+        self.vars = {k: v for k, v in locals().items() if k in var_set}
+
         self.symmetric_p1 = symmetric_p1 and symmetric_p1_arg
         self.symmetric_p1_arg = symmetric_p1_arg
 
-        self.pr, self.pr_arg = pr, pr_arg
         self.estimate_rho = estimate_rho and not callable(pr) and rho is None
         self.rho = rho
 
-        self.n_syn0, self.n_syn1 = n_syn0, n_syn1
         self.autapses = autapses
         self.cache = self.ConnectorCache(cache_data and self.estimate_rho)
         self.verbose = verbose
@@ -403,6 +463,11 @@ class ReciprocalConnector(AbstractConnector):
     def setup_nodes(self, source=None, target=None):
         """Must run this before building connections"""
         if self.stage:
+            # check whether the correct populations
+            if (source is None or target is None or 
+                    not self.is_same_pop(source, self.target) or
+                    not self.is_same_pop(target, self.source)):
+                raise ValueError("Source or target population not consistent.")
             if self.verbose:
                 print("Skip adding nodes for the backward stage.")
             return  # skip if not at the initial stage
@@ -416,24 +481,28 @@ class ReciprocalConnector(AbstractConnector):
             raise ValueError("Target nodes do not exists")
 
         # Setup nodes
+        self.recurrent = self.is_same_pop(self.source, self.target, quick=True)
         self.source_ids = [s.node_id for s in self.source]
-        self.target_ids = [t.node_id for t in self.target]
         self.n_source = len(self.source_ids)
-        self.n_target = len(self.target_ids)
-        self.recurrent = self.source.network_name == self.target.network_name \
-            and self.n_source == self.n_target \
-            and all([i == j for i, j in zip(self.source_ids, self.target_ids)])
         self.source_list = list(self.source)
-        self.target_list = self.source_list if self.recurrent \
-            else list(self.target)
+        if self.recurrent:
+            self.target_ids = self.source_ids
+            self.n_target = self.n_source
+            self.target_list = self.source_list
+        else:
+            self.target_ids = [t.node_id for t in self.target]
+            self.n_target = len(self.target_ids)
+            self.target_list = list(self.target)
 
         # Setup for recurrent connection
         if self.recurrent:
-            self.p1_arg = self.p0_arg
             self.symmetric_p1_arg = True
-            self.p1 = self.p0
             self.symmetric_p1 = True
-            self.n_syn1 = self.n_syn0
+            self.vars['n_syn1'] = self.vars['n_syn0']
+        if self.symmetric_p1_arg:
+            self.vars['p1_arg'] = self.vars['p0_arg']
+        if self.symmetric_p1:
+            self.vars['p1'] = self.vars['p0']
 
     def edge_params(self):
         """Create the arguments for BMTK add_edges() method"""
@@ -607,21 +676,19 @@ class ReciprocalConnector(AbstractConnector):
 
     # *** A sequence of major methods executed during build ***
     def setup_variables(self):
-        var_set = set(('p0', 'p0_arg', 'p1', 'p1_arg',
-                       'pr', 'pr_arg', 'n_syn0', 'n_syn1'))
         callable_set = set()
         # Make constant variables constant functions
-        for name in var_set:
-            var = getattr(self, name)
+        for name, var in self.vars.items():
             if callable(var):
                 callable_set.add(name)  # record callable variables
+                setattr(self, name, var)
             else:
                 setattr(self, name, self.constant_function(var))
         self.callable_set = callable_set
 
         # Make callable variables except a few, accept index input instead
-        for name in (var_set & callable_set) - set(('p0', 'p1', 'pr')):
-            var = getattr(self, name)
+        for name in callable_set - set(('p0', 'p1', 'pr')):
+            var = self.vars[name]
             setattr(self, name, self.node_2_idx_input(var, '1' in name))
 
     def cache_variables(self):
@@ -652,14 +719,14 @@ class ReciprocalConnector(AbstractConnector):
         """The major part of the algorithm run at beginning of BMTK iterator"""
         if self.verbose:
             src_str, trg_str = self.get_nodes_info()
-            print("\nStart building connection between: \n"
-                  + src_str + "\n" + trg_str)
+            print("\nStart building connection between: \n  "
+                  + src_str + "\n  " + trg_str)
         self.initialize()
         cache = self.cache  # write mode
 
         # Estimate pr
         if self.verbose:
-            self.timer = Timer('ms')
+            self.timer = Timer()
         if self.estimate_rho:
             # Make sure each cacheable function runs excatly once per iteration
             p0p1_sum = 0.
@@ -828,40 +895,41 @@ class ReciprocalConnector(AbstractConnector):
               % arr2str(100 * fraction[1], '%.2f%%'))
 
 
-# Helper class
-class Timer(object):
-    def __init__(self, unit='sec'):
-        if unit == 'ms':
-            self.scale = 1e3
-        elif unit == 'us':
-            self.scale = 1e6
-        elif unit == 'min':
-            self.scale = 1 / 60
-        else:
-            self.scale = 1
-            unit = 'sec'
-        self.unit = unit
-        self.start()
-
-    def start(self):
-        self._start = time.perf_counter()
-
-    def end(self):
-        return (time.perf_counter() - self._start) * self.scale
-
-    def report(self, msg='Run time'):
-        print((msg + ": %.3f " + self.unit) % self.end())
-
-
 class UnidirectionConnector(AbstractConnector):
     """
     Object for buiilding unidirectional connections in bmtk network model with
     given probability within a single population (or between two populations).
+
+    Parameters:
+        p, p_arg: Probability of forward connection and its input argument when
+            it is a function, similar to p0, p0_arg in ReciprocalConnector. It
+            can be a constant or a deterministic function whose value must be
+            within range [0, 1]. When p is constant, the connection is
+            homogenous.
+        n_syn: Number of synapses in the forward connection if connected. It
+            can be a constant or a (deterministic or random) function whose
+            input arguments are two node objects in BMTK like p_arg.
+        verbose: Whether show verbose information in console.
+
+    Returns:
+        An object that works with BMTK to build edges in a network.
+
+    Important attributes:
+        vars: Dictionary that stores part of the original input parameters.
+        source, target: NodePool objects for the source and target populations.
+        conn_prop: A dictionaries that stores properties of connected pairs.
+        Each key is the source node id and the value is a dictionary, where
+        each key is the target node id that the source node connects to, and
+        the value is the value of p_arg.
+            Example: {sid0: {tid0: p_arg0, tid1: p_arg1, ...},
+                      sid1: {...}, sid2: {...}, ... }
+            This is useful in similar manner as in ReciprocalConnector.
     """
 
-    def __init__(self, p=0., p_arg=None, n_syn=1, verbose=True):
-        self.p, self.p_arg = p, p_arg
-        self.n_syn = n_syn
+    def __init__(self, p=1., p_arg=None, n_syn=1, verbose=True):
+        var_set = set(('p', 'p_arg', 'n_syn'))
+        self.vars = {k: v for k, v in locals().items() if k in var_set}
+
         self.verbose = verbose
         self.conn_prop = {}
         self.iter_count = 0
@@ -898,10 +966,10 @@ class UnidirectionConnector(AbstractConnector):
 
     def setup_variables(self):
         """Make constant variables constant functions"""
-        var_set = set(('p', 'p_arg', 'n_syn'))
-        for name in var_set:
-            var = getattr(self, name)
-            if not callable(var):
+        for name, var in self.vars.items():
+            if callable(var):
+                setattr(self, name, var)
+            else:
                 setattr(self, name, self.constant_function(var))
 
     def initialize(self):
@@ -909,17 +977,17 @@ class UnidirectionConnector(AbstractConnector):
         self.n_conn = 0
         self.n_poss = 0
         if self.verbose:
-            self.timer = Timer('ms')
+            self.timer = Timer()
 
     def make_connection(self, source, target, *args, **kwargs):
         """Assign number of synapses per iteration using one_to_one iterator"""
         # Initialize in the first iteration
         if self.iter_count == 0:
+            self.initialize()
             if self.verbose:
                 src_str, trg_str = self.get_nodes_info()
-                print("\nStart building connection \n from "
-                      + src_str + "\n to " + trg_str)
-            self.initialize()
+                print("\nStart building connection \n  from "
+                      + src_str + "\n  to " + trg_str)
 
         # Make random connections
         p_arg = self.p_arg(source, target)
@@ -960,41 +1028,183 @@ class UnidirectionConnector(AbstractConnector):
               % (100. * self.n_conn / self.n_pair))
 
 
-# Below are functions yet to be updated
-def one_to_one(source, target):
-    sid = source.node_id
-    tid = target.node_id
-    nsyn = 1 if sid == tid else None
-    return nsyn
+class OneToOneSequentialConnector(AbstractConnector):
+    """Object for buiilding one to one correspondence connections in bmtk
+    network model with between two populations. One of the population can
+    consist of multiple sub-populations. These sub-populations need to be added
+    sequentially using setup_nodes() and edge_params() methods followed by BMTK
+    add_edges() method. For example, to connect 30 nodes in population A to 30
+    nodes in populations B1, B2, B3, each with 10 nodes, set up as follows.
+        connector = OneToOneSequentialConnector(**parameters)
+        connector.setup_nodes(source=A, target=B1)
+        net.add_edges(**connector.edge_params())
+        connector.setup_nodes(target=B2)
+        net.add_edges(**connector.edge_params())
+        connector.setup_nodes(target=B3)
+        net.add_edges(**connector.edge_params())
+    After BMTK executes net.build(), the first 10 nodes in A will connect one-
+    to-one to the 10 nodes in B1, then the 11 to 20-th nodes to those in B2,
+    finally the 21 to 30-th nodes to those in B3.
+    This connector is useful for creating input drives to a population. Each
+    node in it receives an independent drive from a unique source node.
 
-def one_to_one_offset(source, target, offset=0):
-    sid = source.node_id
-    tid = target.node_id - offset
-    nsyn = 1 if sid == tid else None
-    return nsyn
+    Parameters:
+        n_syn: Number of synapses in each connection. It accepts only constant
+            for now.
+        partition_source: Whether the source population consists of multiple
+            sub-populations. By default, the source has one population, and the
+            target can have multiple sub-populations. If set to true, the
+            source can have multiple sub-populations and the target has only
+            one population.
+        verbose: Whether show verbose information in console.
 
-# TODO: use one_to_all iterator
-def one_to_one_thal(source, target, offset):
-    sid = source.node_id
-    tid = target.node_id
-    if sid >= 4000:
-        tid = tid - offset
-    nsyn = 1 if sid == tid else None
-    return nsyn
+    Returns:
+        An object that works with BMTK to build edges in a network.
 
-# TODO: use one_to_all iterator
-def one_to_one_intbase(source, target, offset1, offset2):
-    sid = source.node_id
-    tid = target.node_id
-    if sid < 1000:
-        tid = tid - offset1
-    elif sid >= 1000:
-        tid = tid - offset2
-    nsyn = 1 if sid == tid else None
-    return nsyn
+    Important attributes:
+        source: NodePool object for the single population.
+        targets: List of NodePool objects for the multiple sub-populations.
+    """
+    
+    def __init__(self, n_syn=1, partition_source=False, verbose=True):
+        self.n_syn = int(n_syn)
+        self.partition_source = partition_source
+        self.verbose = verbose
+
+        self.targets = []
+        self.n_source = 0
+        self.idx_range = [0]
+        self.target_count = 0
+        self.iter_count = 0
+
+    # *** Two methods executed during bmtk edge creation net.add_edges() ***
+    def setup_nodes(self, source=None, target=None):
+        """Must run this before building connections"""
+        # Update node pools
+        if self.partition_source:
+            source, target = target, source
+        if self.target_count == 0:
+            if source is None or len(source) == 0:
+                raise ValueError(("Target" if self.partition_source else
+                                  "Source") + " nodes do not exists")
+            self.source = source
+            self.n_source = len(source)
+        if target is None or len(target) == 0:
+            raise ValueError(("Source" if self.partition_source else
+                              "Target") + " nodes do not exists")
+
+        self.targets.append(target)
+        self.idx_range.append(self.idx_range[-1] + len(target))
+        self.target_count += 1
+
+        if self.idx_range[-1] > self.n_source:
+            if self.partition_source:
+                raise ValueError(
+                    "Total target populations exceed the source population."
+                    if self.partition_source else
+                    "Total source populations exceed the target population."
+                    )
+
+        if self.verbose and self.idx_range[-1] == self.n_source:
+            print("All " + ("source" if self.partition_source else "target")
+                  + " population partitions are filled.")
+
+    def edge_params(self, target_pop_idx=-1):
+        """Create the arguments for BMTK add_edges() method"""
+        if self.partition_source:
+            params = {'source': self.targets[target_pop_idx],
+                      'target': self.source,
+                      'iterator': 'one_to_all'}
+        else:
+            params = {'source': self.source,
+                      'target': self.targets[target_pop_idx],
+                      'iterator': 'all_to_one'}
+        params['connection_rule'] = self.make_connection
+        return params
+
+    # *** Methods executed during bmtk network.build() ***
+    def make_connection(self, source, targets, *args, **kwargs):
+        """Assign one connection per iteration using all_to_one iterator"""
+        # Initialize in the first iteration
+        if self.verbose:
+            if self.iter_count == 0:
+                # Very beginning
+                self.target_count = 0
+                src_str, trg_str = self.get_nodes_info()
+                print("\nStart building connection " +
+                      ("to " if self.partition_source else "from ") + src_str)
+                self.timer = Timer()
+
+            if self.iter_count == self.idx_range[self.target_count]:
+                # Beginning of each target population
+                src_str, trg_str = self.get_nodes_info(self.target_count)
+                print(("  %d. " % self.target_count) +
+                      ("from " if self.partition_source else "to ") + trg_str)
+                self.target_count += 1
+                self.timer_part = Timer()
+
+        # Make connection
+        nsyns = np.zeros(self.n_source, dtype=int)
+        nsyns[self.iter_count] = self.n_syn
+        self.iter_count += 1
+
+        # Detect end of iteration
+        if self.verbose:
+            if self.iter_count == self.idx_range[self.target_count]:
+                # End of each target population
+                self.timer_part.report('    Time for this partition')
+            if self.iter_count == self.n_source:
+                # Very end
+                self.timer.report('Done! \nTime for building connections')
+        return nsyns
+
+    # *** Helper functions for verbose ***
+    def get_nodes_info(self, target_pop_idx=-1):
+        """Get strings with source and target population information"""
+        target = self.targets[target_pop_idx]
+        source_str = self.source.network_name + ': ' + self.source.filter_str
+        target_str = target.network_name + ': ' + target.filter_str
+        return source_str, target_str
+
 
 ##############################################################################
 ######################### ADDTIONAL EDGE PROPERTIES ##########################
+
+SYN_MIN_DELAY = 0.8  # ms
+SYN_VELOCITY = 1000.  # um/ms
+
+def syn_dist_delay_feng(source, target,
+                        min_delay=SYN_MIN_DELAY, velocity=SYN_VELOCITY,
+                        fluc_stdev=0.05, connector=None):
+    """Synpase delay linearly dependent on distance.
+    min_delay: minimum delay (ms)
+    velocity: synapse conduction velocity (micron/ms)
+    fluc_stdev: standard deviation of random Gaussian fluctuation (ms)
+    """
+    if connector is None:
+        dist = euclid_dist(target['positions'], source['positions'])
+    else:
+        dist = connector.get_conn_prop(source.node_id, target.node_id)
+    del_fluc = fluc_stdev * random.randn()
+    delay = max(dist / SYN_VELOCITY + SYN_MIN_DELAY + del_fluc, 0.)
+    return delay
+
+
+def syn_dist_delay_feng_section(source, target, connector=None,
+                                sec_id=None, sec_x=0.9):
+    if sec_id is None:
+        sec_id = get_target_sec_id(source, target)
+    return syn_dist_delay_feng(source, target, connector), sec_id, sec_x
+
+
+def syn_uniform_delay_section(source, target, low=0.5, high=1,
+                              sec_id=None, sec_x=0.9, **kwargs):
+    if sec_id is None:
+        sec_id = get_target_sec_id(source, target)
+    return random.uniform(low, high), sec_id, sec_x
+
+
+# The function below is not necessary if sec_id is specified in edge parameters
 # TODO: select based on cell types of a pair
 TARGET_SEC_ID = {
         'CP': 1, 'CS': 1,
@@ -1013,29 +1223,3 @@ def get_target_sec_id(source, target):
             # return 0
             import pdb; pdb.set_trace()
     return sec_id
-
-def syn_dist_delay_feng_section(source, target, connector=None,
-                                sec_id=None, sec_x=0.9):
-    if sec_id is None:
-        sec_id = get_target_sec_id(source, target)
-    return syn_dist_delay_feng(source, target, connector), sec_id, sec_x
-
-def syn_uniform_delay_section(source, target, low=0.5, high=1,
-                              sec_id=None, sec_x=0.9):
-    if sec_id is None:
-        sec_id = get_target_sec_id(source, target)
-    return random.uniform(low, high), sec_id, sec_x
-
-def section_id_placement():
-    return 1, 0.6
-
-SYN_MIN_DELAY = 0.8  # ms
-SYN_VELOCITY = 1000.  # um/ms
-def syn_dist_delay_feng(source, target, connector):
-    if connector is None:
-        dist = euclid_dist(target['positions'], source['positions'])
-    else:
-        dist = connector.get_conn_prop(source.node_id, target.node_id)
-    del_fluc = 0.05 * random.randn()
-    delay = max(dist / SYN_VELOCITY + SYN_MIN_DELAY + del_fluc, 0.)
-    return delay
