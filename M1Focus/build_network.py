@@ -4,6 +4,7 @@ from functools import partial
 from bmtk.builder import NetworkBuilder
 from bmtk.utils.sim_setup import build_env_bionet
 import synapses
+import connectors
 from connectors import (
     spherical_dist, cylindrical_dist_z, GaussianDropoff, UniformInRange,
     pr_2_rho, ReciprocalConnector, UnidirectionConnector,
@@ -14,8 +15,9 @@ from connectors import (
 ##############################################################################
 ############################## General Settings ##############################
 
-randseed = 123412
-np.random.seed(randseed)
+randseed = 1234
+rng = np.random.default_rng(randseed)
+connectors.rng = rng
 
 network_dir = 'network'
 t_sim = 11500.0
@@ -23,14 +25,14 @@ dt = 0.05
 
 # Network size and dimensions
 num_cells = 1000  # 10000
-column_width, column_height = 1000., 500.
-x_start, x_end = -column_width/2, column_width/2
-y_start, y_end = -column_width/2, column_width/2
-z_start, z_end = 0., column_height
-z_5A = 250.
+column_width, column_height = 600., 500.
+x_start, x_end = - column_width / 2, column_width / 2
+y_start, y_end = - column_width / 2, column_width / 2
+z_start, z_end = - column_height / 2, column_height / 2
+z_5A = 0.
 
 # Distance constraint for all cells
-min_conn_dist = 0.0
+min_conn_dist = 25.0  # um. PN soma diameter
 max_conn_dist = 300.0  # or np.inf
 # Distance range for total probability in estimation of Gaussian drop function
 ptotal_dist_range = (0., 150.)
@@ -60,36 +62,156 @@ num_CP, num_CS, num_FSI, num_LTS = num_prop([40, 40, 12, 8], num_cells)
 
 # Amount of cells per layer
 # CP cells are basically only in layer 5B and nowhere else.
-numCP_in5A, numCP_in5B = num_prop([5, 95], num_CP)
+numCP_5A, numCP_5B = num_prop([5, 95], num_CP)
 # CS cells span top of 5B to middle of 2/3
-numCS_in5A, numCS_in5B = num_prop([95, 5], num_CS)
+numCS_5A, numCS_5B = num_prop([95, 5], num_CS)
 # Even distribution of FSI cells between Layers 5A and 5B
-numFSI_in5A, numFSI_in5B = num_prop([1, 1], num_FSI)
+numFSI_5A, numFSI_5B = num_prop([1, 1], num_FSI)
 # Even distribution of LTS cells between Layers 5A and 5B
-numLTS_in5A, numLTS_in5B = num_prop([1, 1], num_LTS)
+numLTS_5A, numLTS_5B = num_prop([1, 1], num_LTS)
 
 # Total 400x400x1820 (ignoring layer 1)
 # Order from top to bottom is 2/3, 4, 5A, 5B, 6
 # Layer 2/3 (420 um thick) 23.1%
 # Layer 5A (250 um thick) 13.7% (z is 250 to 499)
 # Layer 5B (250 um thick) 13.7%  (z is 0 to 249)
-num_cells_5A = numCP_in5A + numCS_in5A + numFSI_in5A + numLTS_in5A
-num_cells_5B = numCP_in5B + numCS_in5B + numFSI_in5B + numLTS_in5B
-
-# TODO: Use poisson-disc sampling to generate positions with minimum distance
-# limit, possibly using scipy.stats.qmc.PoissonDisk (new in scipy 1.10.0)
-pos_list_5A = np.random.rand(num_cells_5A, 3)
-pos_list_5A[:, 0] = pos_list_5A[:, 0] * (x_end - x_start) + x_start
-pos_list_5A[:, 1] = pos_list_5A[:, 1] * (y_end - y_start) + y_start
-pos_list_5A[:, 2] = pos_list_5A[:, 2] * (z_end - z_5A) + z_5A
-
-pos_list_5B = np.random.rand(num_cells_5B,3)
-pos_list_5B[:, 0] = pos_list_5B[:, 0] * (x_end - x_start) + x_start
-pos_list_5B[:, 1] = pos_list_5B[:, 1] * (y_end - y_start) + y_start
-pos_list_5B[:, 2] = pos_list_5B[:, 2] * (z_5A - z_start) + z_start
+num_cells_5A = numCP_5A + numCS_5A + numFSI_5A + numLTS_5A
+num_cells_5B = numCP_5B + numCS_5B + numFSI_5B + numLTS_5B
 
 
-## TODO: generate random orientations
+# Generate random cell positions
+# Use poisson-disc sampling to generate positions with minimum distance limit.
+use_poiss_disc = False
+
+# Get positions for cells in the core
+def samples_in_core(samples):
+    core_idx = (samples[:, 0] >= x_start) & (samples[:, 0] <= x_end) & \
+        (samples[:, 1] >= y_start) & (samples[:, 1] <= y_end) & \
+        (samples[:, 2] >= z_start) & (samples[:, 2] <= z_end)
+    pos_list_5 = samples[core_idx]  # layer 5 volume
+    idx_5A = pos_list_5[:, 2] >= z_5A  # index in 5A, others in 5B
+    return core_idx, pos_list_5[idx_5A], pos_list_5[~idx_5A]
+
+# Generate samples in cube with side_length
+side_length = max(column_width, column_height)
+if edge_effects:
+    side_length += 2 * max_conn_dist  # Extend by 2 * max_conn_dist
+
+    # Compute the outer shell range. Extend the edge by max_conn_dist.
+    shell_x_start, shell_y_start, shell_z_start = \
+        np.array((x_start, y_start, z_start)) - max_conn_dist
+    shell_x_end, shell_y_end, shell_z_end = \
+        np.array((x_end, y_end, z_end)) + max_conn_dist
+
+    # Compute the core and shell volume
+    core_volume_5A = (x_end - x_start) * (y_end - y_start) * (z_end - z_5A)
+    core_volume_5B = (x_end - x_start) * (y_end - y_start) * (z_5A - z_start)
+    shell_volume_5A = (shell_x_end - shell_x_start) * \
+        (shell_y_end - shell_y_start) * (shell_z_end - z_5A) - core_volume_5A
+    shell_volume_5B = (shell_x_end - shell_x_start) * \
+        (shell_y_end - shell_y_start) * (z_5A - shell_z_start) - core_volume_5B
+
+    # Determine the number of shell cells with the same density
+    virt_num_cells_5A = int(round(num_cells_5A *
+                                  shell_volume_5A / core_volume_5A))
+    virt_num_cells_5B = int(round(num_cells_5B *
+                                  shell_volume_5B / core_volume_5B))
+
+    # Get positions for cells in the shell
+    def samples_in_shell(samples):
+        shell_idx = (samples[:, 0] >= shell_x_start) &\
+            (samples[:, 0] <= shell_x_end) & \
+            (samples[:, 1] >= shell_y_start) & \
+            (samples[:, 1] <= shell_y_end) & \
+            (samples[:, 2] >= shell_z_start) &\
+            (samples[:, 2] <= shell_z_end)
+        pos_list_5 = samples[shell_idx]
+        idx_5A = pos_list_5[:, 2] >= z_5A  # index in 5A, others in 5B
+        return pos_list_5[idx_5A], pos_list_5[~idx_5A]
+
+# Generate samples in cube [0, 1]^3, then scale it to side_length and center it
+def scale_cube(samples):
+    return side_length * (samples - 0.5)
+
+
+if use_poiss_disc:
+    from scipy.stats import qmc  # qmc.PoissonDisk new in scipy 1.10.0
+
+    min_conn_dist = 30.0
+    radius = min_conn_dist / side_length
+    engine = qmc.PoissonDisk(d=3, radius=radius, ncandidates=30, seed=rng)
+    samples = scale_cube(engine.fill_space())
+
+    core_idx, pos_list_5A, pos_list_5B = samples_in_core(samples)
+    if len(pos_list_5A) < num_cells_5A or len(pos_list_5B) < num_cells_5B:
+        raise ValueError("There are not enough position samples generated.")
+    if edge_effects:
+        shell_pos_list_5A, shell_pos_list_5B = \
+            samples_in_shell(samples[~core_idx])
+        if len(shell_pos_list_5A) < virt_num_cells_5A or \
+                len(shell_pos_list_5B) < virt_num_cells_5B:
+            raise ValueError("There are not enough position samples "
+                             "generated in shell.")
+else:
+    cell_dens = num_cells / (column_width * column_width * column_height)
+    num_pos = int(cell_dens * side_length ** 3)
+    samples = scale_cube(rng.random((num_pos, 3)))
+    num_pos = int(0.1 * num_pos)
+    while True:
+        core_idx, pos_list_5A, pos_list_5B = samples_in_core(samples)
+        add_samples = len(pos_list_5A) < num_cells_5A \
+            or len(pos_list_5B) < num_cells_5B
+        if edge_effects:
+            shell_pos_list_5A, shell_pos_list_5B = \
+                samples_in_shell(samples[~core_idx])
+            add_samples = add_samples \
+                or len(shell_pos_list_5A) < virt_num_cells_5A \
+                or len(shell_pos_list_5B) < virt_num_cells_5B
+        if add_samples:
+            new_samples = scale_cube(rng.random((num_pos, 3)))
+            samples = np.concatenate((samples, new_samples), axis=0)
+        else:
+            break
+
+# Draw desired number of samples from the position list
+pos_list_5A = rng.choice(pos_list_5A, num_cells_5A, replace=False)
+pos_list_5B = rng.choice(pos_list_5B, num_cells_5B, replace=False)
+
+if edge_effects:
+    shell_pos_list_5A = rng.choice(shell_pos_list_5A,
+                                   virt_num_cells_5A, replace=False)
+    shell_pos_list_5B = rng.choice(shell_pos_list_5B,
+                                   virt_num_cells_5B, replace=False)
+
+    # Keep only the PN cells in the lateral shell around the core
+    def shell_PN_5A(pos_list):
+        return pos_list[pos_list[:, 2] <= z_end]
+
+    def shell_PN_5B(pos_list):
+        return pos_list[pos_list[:, 2] >= z_start]
+
+    virt_numPN_5A, virt_numITN_5A = num_prop(
+        [numCP_5A + numCS_5A, numFSI_5A + numLTS_5A], virt_num_cells_5A)
+    virt_numPN_5B, virt_numITN_5B = num_prop(
+        [numCP_5B + numCS_5B, numFSI_5B + numLTS_5B], virt_num_cells_5B)
+
+    PN_list_5A = shell_PN_5A(shell_pos_list_5A[:virt_numPN_5A])
+    ITN_list_5A = shell_pos_list_5A[virt_numPN_5A:]
+    shell_pos_list_5A = np.concatenate((PN_list_5A, ITN_list_5A))
+    PN_list_5B = shell_PN_5B(shell_pos_list_5B[:virt_numPN_5B])
+    ITN_list_5B = shell_pos_list_5B[virt_numPN_5B:]
+    shell_pos_list_5B = np.concatenate((PN_list_5B, ITN_list_5B))
+
+    virt_numCP_5A, virt_numCS_5A = num_prop(
+        [numCP_5A, numCS_5A], len(PN_list_5A))
+    virt_numFSI_5A, virt_numLTS_5A = num_prop(
+        [numFSI_5A, numLTS_5A], virt_numITN_5A)
+    virt_numCP_5B, virt_numCS_5B = num_prop(
+        [numCP_5B, numCS_5B], len(PN_list_5B))
+    virt_numFSI_5B, virt_numLTS_5B = num_prop(
+        [numFSI_5B, numLTS_5B], virt_numITN_5B)
+
+# TODO: generate random orientations
 
 
 ##############################################################################
@@ -207,7 +329,7 @@ network_definitions = [
         'positions_list': pos_list_5A,
         'cells': [
             {   # CP
-                'N': numCP_in5A,
+                'N': numCP_5A,
                 'pop_name': 'CP',
                 'rotation_angle_zaxis': None,
                 'rotation_angle_yaxis': None,
@@ -216,7 +338,7 @@ network_definitions = [
                 'morphology': 'blank.swc'
             },
             {   # CS
-                'N': numCS_in5A,
+                'N': numCS_5A,
                 'pop_name': 'CS',
                 'rotation_angle_zaxis': None,
                 'rotation_angle_yaxis': None,
@@ -225,7 +347,7 @@ network_definitions = [
                 'morphology': 'blank.swc'
             },
             {   # FSI
-                'N': numFSI_in5A,
+                'N': numFSI_5A,
                 'pop_name': 'FSI',
                 'rotation_angle_zaxis': None,
                 'rotation_angle_yaxis': None,
@@ -234,7 +356,7 @@ network_definitions = [
                 'morphology': 'blank.swc'
             },
             {   # LTS
-                'N': numLTS_in5A,
+                'N': numLTS_5A,
                 'pop_name': 'LTS',
                 'rotation_angle_zaxis': None,
                 'rotation_angle_yaxis': None,
@@ -249,7 +371,7 @@ network_definitions = [
         'positions_list': pos_list_5B,
         'cells': [
             {   # CP
-                'N': numCP_in5B,
+                'N': numCP_5B,
                 'pop_name': 'CP',
                 'rotation_angle_zaxis': None,
                 'rotation_angle_yaxis': None,
@@ -258,7 +380,7 @@ network_definitions = [
                 'morphology': 'blank.swc'
             },
             {   # CS
-                'N': numCS_in5B,
+                'N': numCS_5B,
                 'pop_name': 'CS',
                 'rotation_angle_zaxis': None,
                 'rotation_angle_yaxis': None,
@@ -267,7 +389,7 @@ network_definitions = [
                 'morphology': 'blank.swc'
             },
             {   # FSI
-                'N': numFSI_in5B,
+                'N': numFSI_5B,
                 'pop_name': 'FSI',
                 'rotation_angle_zaxis': None,
                 'rotation_angle_yaxis': None,
@@ -276,7 +398,7 @@ network_definitions = [
                 'morphology': 'blank.swc'
             },
             {   # LTS
-                'N': numLTS_in5B,
+                'N': numLTS_5B,
                 'pop_name': 'LTS',
                 'rotation_angle_zaxis': None,
                 'rotation_angle_yaxis': None,
@@ -317,70 +439,6 @@ network_definitions = [
 ################################ EDGE EFFECTS ################################
 
 if edge_effects:
-    # Compute the outer shell range. The absolute max_conn_dist will extend
-    # each dimension of the core by 2 * max_conn_dist
-    shell_x_start, shell_y_start, shell_z_start = \
-        np.array((x_start, y_start, z_start)) - max_conn_dist
-    shell_x_end, shell_y_end, shell_z_end = \
-        np.array((x_end, y_end, z_end)) + max_conn_dist
-
-    # Compute the core and shell volume
-    core_volume_5A = (x_end - x_start) * (y_end - y_start) * (z_end - z_5A)
-    core_volume_5B = (x_end - x_start) * (y_end - y_start) * (z_5A - z_start)
-    shell_volume_5A = (shell_x_end - shell_x_start) * \
-        (shell_y_end - shell_y_start) * (shell_z_end - z_5A)
-    shell_volume_5B = (shell_x_end - shell_x_start) * \
-        (shell_y_end - shell_y_start) * (z_5A - shell_z_start)
-
-    # Increase the number of original cells based on the volume difference
-    # between core and shell
-    # Layer 5A
-    virt_num_cells_5A = int(round(num_cells_5A *
-                                  shell_volume_5A / core_volume_5A))
-    # Layer 5B
-    virt_num_cells_5B = int(round(num_cells_5B *
-                                  shell_volume_5B / core_volume_5B))
-
-    # Create a positions list for cells in the shell
-    virt_pos_list_5A = np.random.rand(virt_num_cells_5A, 3)
-    virt_pos_list_5A[:, 0] = virt_pos_list_5A[:, 0] * \
-        (shell_x_end - shell_x_start) + shell_x_start
-    virt_pos_list_5A[:, 1] = virt_pos_list_5A[:, 1] * \
-        (shell_y_end - shell_y_start) + shell_y_start
-    virt_pos_list_5A[:, 2] = virt_pos_list_5A[:, 2] * \
-        (shell_z_end - z_5A) + z_5A
-    i_shell = (virt_pos_list_5A[:, 2] > z_end) | \
-        (virt_pos_list_5A[:, 0] < x_start) | (virt_pos_list_5A[:, 0] > x_end) | \
-        (virt_pos_list_5A[:, 1] < y_start) | (virt_pos_list_5A[:, 1] > y_end)
-
-    virt_pos_list_5A = virt_pos_list_5A[i_shell]
-
-    virt_pos_list_5B = np.random.rand(virt_num_cells_5B, 3)
-    virt_pos_list_5B[:, 0] = virt_pos_list_5B[:, 0] * \
-        (shell_x_end - shell_x_start) + shell_x_start
-    virt_pos_list_5B[:, 1] = virt_pos_list_5B[:, 1] * \
-        (shell_y_end - shell_y_start) + shell_y_start
-    virt_pos_list_5B[:, 2] = virt_pos_list_5B[:, 2] * \
-        (z_5A - shell_z_start) + shell_z_start
-    i_shell = (virt_pos_list_5B[:, 2] < z_start) | \
-        (virt_pos_list_5B[:, 0] < x_start) | (virt_pos_list_5B[:, 0] > x_end) | \
-        (virt_pos_list_5B[:, 1] < y_start) | (virt_pos_list_5B[:, 1] > y_end)
-
-    virt_pos_list_5B = virt_pos_list_5B[i_shell]
-
-    # Recalculate number of cells in each layer
-    virt_num_cells_5A = len(virt_pos_list_5A)
-    virt_numCP_in5A, virt_numCS_in5A, virt_numFSI_in5A, virt_numLTS_in5A = \
-        num_prop([numCP_in5A, numCS_in5A, numFSI_in5A, numLTS_in5A],
-                 virt_num_cells_5A)
-
-    virt_num_cells_5B = len(virt_pos_list_5B)
-    virt_numCP_in5B, virt_numCS_in5B, virt_numFSI_in5B, virt_numLTS_in5B = \
-        num_prop([numCP_in5B, numCS_in5B, numFSI_in5B, numLTS_in5B],
-                 virt_num_cells_5B)
-
-    virt_num_cells = virt_num_cells_5A + virt_num_cells_5B
-
     # This network should contain all the same properties as the original
     # network, except the cell should be virtual. For connectivity, you should
     # name the cells the same as the original network because connection rules
@@ -388,25 +446,25 @@ if edge_effects:
     shell_network = [
     {   # Start Layer 5A
         'network_name': 'shell',
-        'positions_list': virt_pos_list_5A,
+        'positions_list': shell_pos_list_5A,
         'cells': [
             {   # CP
-                'N': virt_numCP_in5A,
+                'N': virt_numCP_5A,
                 'pop_name': 'CP',
                 'model_type': 'virtual'
             },
             {   # CS
-                'N': virt_numCS_in5A,
+                'N': virt_numCS_5A,
                 'pop_name': 'CS',
                 'model_type': 'virtual'
             },
             {   # FSI
-                'N': virt_numFSI_in5A,
+                'N': virt_numFSI_5A,
                 'pop_name': 'FSI',
                 'model_type': 'virtual'
             },
             {   # LTS
-                'N': virt_numLTS_in5A,
+                'N': virt_numLTS_5A,
                 'pop_name': 'LTS',
                 'model_type': 'virtual'
             }
@@ -414,25 +472,25 @@ if edge_effects:
     },  # End Layer 5A
     {   # Start Layer 5B
         'network_name': 'shell',
-        'positions_list': virt_pos_list_5B,
+        'positions_list': shell_pos_list_5B,
         'cells': [
             {   # CP
-                'N': virt_numCP_in5B,
+                'N': virt_numCP_5B,
                 'pop_name': 'CP',
                 'model_type': 'virtual'
             },
             {   # CS
-                'N': virt_numCS_in5B,
+                'N': virt_numCS_5B,
                 'pop_name': 'CS',
                 'model_type': 'virtual'
             },
             {   # FSI
-                'N': virt_numFSI_in5B,
+                'N': virt_numFSI_5B,
                 'pop_name': 'FSI',
                 'model_type': 'virtual'
             },
             {   # LTS
-                'N': virt_numLTS_in5B,
+                'N': virt_numLTS_5B,
                 'pop_name': 'LTS',
                 'model_type': 'virtual'
             }
@@ -520,6 +578,33 @@ edge_definitions = [
         'param': 'FSI2FSI',
         'add_properties': 'syn_dist_delay_feng_default'
     },
+    {   # LTS -> LTS Unidirectional
+        'network': 'cortex',
+        'edge': {
+            'source': {'pop_name': ['LTS']},
+            'target': {'pop_name': ['LTS']}
+        },
+        'param': 'LTS2LTS',
+        'add_properties': 'syn_dist_delay_feng_default'
+    },
+    {   # FSI -> LTS forward
+        'network': 'cortex',
+        'edge': {
+            'source': {'pop_name': ['FSI']},
+            'target': {'pop_name': ['LTS']}
+        },
+        'param': 'FSI2LTS',
+        'add_properties': 'syn_dist_delay_feng_default'
+    },
+    {   # FSI <- LTS backward
+        'network': 'cortex',
+        'edge': {
+            'source': {'pop_name': ['LTS']},
+            'target': {'pop_name': ['FSI']}
+        },
+        'param': 'LTS2FSI',
+        'add_properties': 'syn_dist_delay_feng_default'
+    },
     {   # CP -> FSI forward
         'network': 'cortex',
         'edge': {
@@ -556,49 +641,40 @@ edge_definitions = [
         'param': 'FSI2CP',
         'add_properties': 'syn_dist_delay_feng_default'
     },
-    {   # LTS -> LTS Reciprocal
+    {   # CP -> LTS forward
+        'network': 'cortex',
+        'edge': {
+            'source': {'pop_name': ['CP']},
+            'target': {'pop_name': ['LTS']}
+        },
+        'param': 'CP2LTS',
+        'add_properties': 'syn_dist_delay_feng_default'
+    },
+    {   # CP <- LTS backward
         'network': 'cortex',
         'edge': {
             'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['LTS']}
+            'target': {'pop_name': ['CP']}
         },
-        'param': 'LTS2LTS',
+        'param': 'LTS2CP',
         'add_properties': 'syn_dist_delay_feng_default'
     },
-    {   # PN -> LTS forward
+    {   # CS -> LTS forward
         'network': 'cortex',
         'edge': {
-            'source': {'pop_name': ['CP', 'CS']},
+            'source': {'pop_name': ['CS']},
             'target': {'pop_name': ['LTS']}
         },
-        'param': 'PN2LTS',
+        'param': 'CS2LTS',
         'add_properties': 'syn_dist_delay_feng_default'
     },
-    {   # PN <- LTS backward
+    {   # CS <- LTS backward
         'network': 'cortex',
         'edge': {
             'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['CP', 'CS']}
+            'target': {'pop_name': ['CS']}
         },
-        'param': 'LTS2PN',
-        'add_properties': 'syn_dist_delay_feng_default'
-    },
-    {   # FSI -> LTS forward
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['FSI']},
-            'target': {'pop_name': ['LTS']}
-        },
-        'param': 'FSI2LTS',
-        'add_properties': 'syn_dist_delay_feng_default'
-    },
-    {   # FSI <- LTS backward
-        'network': 'cortex',
-        'edge': {
-            'source': {'pop_name': ['LTS']},
-            'target': {'pop_name': ['FSI']}
-        },
-        'param': 'LTS2FSI',
+        'param': 'LTS2CS',
         'add_properties': 'syn_dist_delay_feng_default'
     },
         ################### THALAMIC INPUT ###################
@@ -651,13 +727,13 @@ edge_params = {
         'connector_class': ReciprocalConnector,
         'connector_params': {
             'p0': GaussianDropoff(
-                stdev=124.62, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                ptotal=0.1 * (0.5 + 0.3 / 0.7),
-                ptotal_dist_range=ptotal_dist_range,
-                dist_type='cylindrical'),  # 10% unidirectional
+                stdev=127.0, min_dist=0., max_dist=max_conn_dist,
+                ptotal=0.0866, ptotal_dist_range=(0., 100.),
+                dist_type='cylindrical'),
             'p0_arg': cylindrical_dist_z,
-            'pr': 0.1 / 0.7 * 0.3,  # 30% of connected paris are reciprocal
-            'estimate_rho': True
+            'pr': 0.042,
+            'estimate_rho': True,
+            'dist_range_forward': (0., 100.)
             },
         'syn_weight': 1,
         'sec_id': 2,
@@ -668,13 +744,13 @@ edge_params = {
         'connector_class': ReciprocalConnector,
         'connector_params': {
             'p0': GaussianDropoff(
-                stdev=124.62, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                ptotal=0.1 * (0.5 + 0.3 / 0.7),
-                ptotal_dist_range=ptotal_dist_range,
+                stdev=127.0, min_dist=0., max_dist=max_conn_dist,
+                ptotal=0.077, ptotal_dist_range=(0., 100.),
                 dist_type='cylindrical'),
-            'p0_arg': cylindrical_dist_z,  # 10% unidirectional
-            'pr': 0.1 / 0.7 * 0.3,  # 30% of connected paris are reciprocal
-            'estimate_rho': True
+            'p0_arg': cylindrical_dist_z,
+            'pr': 0.015,
+            'estimate_rho': True,
+            'dist_range_forward': (0., 100.)
             },
         'syn_weight': 1,
         'sec_id': 2,
@@ -685,8 +761,8 @@ edge_params = {
         'connector_class': UnidirectionConnector,
         'connector_params': {
             'p': GaussianDropoff(
-                stdev=124.62, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                ptotal=0.01, ptotal_dist_range=ptotal_dist_range,
+                stdev=127.0, min_dist=0., max_dist=max_conn_dist,
+                ptotal=0.01, ptotal_dist_range=(0., 100.),
                 dist_type='cylindrical'),
             'p_arg': cylindrical_dist_z,
             },
@@ -699,8 +775,8 @@ edge_params = {
         'connector_class': UnidirectionConnector,
         'connector_params': {
             'p': GaussianDropoff(
-                stdev=124.62, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                ptotal=0.1, ptotal_dist_range=ptotal_dist_range,
+                stdev=127.0, min_dist=0., max_dist=max_conn_dist,
+                ptotal=0.112, ptotal_dist_range=(0., 100.),
                 dist_type='cylindrical'),
             'p_arg': cylindrical_dist_z,
             },
@@ -713,32 +789,80 @@ edge_params = {
         'connector_class': ReciprocalConnector,
         'connector_params': {
             'p0': GaussianDropoff(
-                stdev=131.48, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                ptotal=0.34 / 2 + 0.43, ptotal_dist_range=ptotal_dist_range,
-                dist_type='spherical'),  # 34% unidirectional
+                stdev=126.77, min_dist=min_conn_dist, max_dist=max_conn_dist,
+                ptotal=0.103, ptotal_dist_range=(min_conn_dist, 200.),
+                dist_type='spherical'),
             'p0_arg': spherical_dist,
-            'pr': 0.43, 'estimate_rho': True  # 43% reciprocal
-            # 'rho': pr_2_rho(0.6, 0.6, 0.43)  # use fixed rho instead
+            'pr': 0.04,
+            'estimate_rho': True,
+            'dist_range_forward': (min_conn_dist, 100.)
+            # 'rho': pr_2_rho(0.103, 0.103, 0.04)  # use fixed rho instead
             },
         'syn_weight': 1,
         'sec_id': 0,  # soma
         'sec_x': 0.5,
         'dynamics_params': 'FSI2FSI.json'
     },
+    'LTS2LTS': {
+        'connector_class': UnidirectionConnector,
+        'connector_params': {
+            'p': GaussianDropoff(
+                stdev=126.77, min_dist=min_conn_dist, max_dist=max_conn_dist,
+                ptotal=0.15, ptotal_dist_range=(min_conn_dist, 50.),
+                dist_type='spherical'),
+            'p_arg': spherical_dist
+            },
+        'syn_weight': 1,
+        'sec_id': 0,  # soma
+        'sec_x': 0.5,
+        'dynamics_params': 'INT2INT.json'
+    },
+    'FSI2LTS': {
+        'connector_class': ReciprocalConnector,
+        'connector_params': {
+            'p0': GaussianDropoff(
+                stdev=126.77, min_dist=min_conn_dist, max_dist=max_conn_dist,
+                ptotal=0.34, ptotal_dist_range=(min_conn_dist, 50.),
+                dist_type='spherical'),
+            'p0_arg': spherical_dist,
+            'p1': GaussianDropoff(
+                stdev=126.77, min_dist=min_conn_dist, max_dist=max_conn_dist,
+                ptotal=0.53, ptotal_dist_range=(min_conn_dist, 50.),
+                dist_type='spherical'),  # 53% unidirectional
+            'p1_arg': spherical_dist,
+            'pr': 0.22,
+            'estimate_rho': True,
+            'dist_range_forward': (min_conn_dist, 50.)
+            },
+        'syn_weight': 1,
+        'sec_id': 0,  # soma
+        'sec_x': 0.5,
+        'dynamics_params': 'FSI2LTS.json'
+    },
+    'LTS2FSI': {
+        'connector_class': get_connector,
+        'connector_params': {'param': 'FSI2LTS'},
+        'syn_weight': 1,
+        'sec_id': 0,  # soma
+        'sec_x': 0.5,
+        'dynamics_params': 'LTS2FSI.json'
+    },
     'CP2FSI': {
         'connector_class': ReciprocalConnector,
         'connector_params': {
             'p0': GaussianDropoff(
-                stdev=99.25, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                ptotal=0.32, ptotal_dist_range=ptotal_dist_range,
-                dist_type='cylindrical'),  # 32% total
+                stdev=99.84, min_dist=0., max_dist=max_conn_dist,
+                ptotal=0.32, ptotal_dist_range=(0., 100.),
+                dist_type='cylindrical'),
             'p0_arg': cylindrical_dist_z,
             'p1': GaussianDropoff(
-                stdev=95.98, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                pmax=0.20 + 0.28, ptotal_dist_range=ptotal_dist_range,
-                dist_type='spherical'),  # 20% unidirectional
+                stdev=96.60, min_dist=min_conn_dist, max_dist=max_conn_dist,
+                ptotal=0.48, ptotal_dist_range=(min_conn_dist, 100.),
+                dist_type='spherical'),
             'p1_arg': spherical_dist,
-            'pr': 0.28, 'estimate_rho': True  # 28% reciprocal
+            'pr': 0.26,
+            'estimate_rho': True,
+            'dist_range_backward': (min_conn_dist, 100.)
             },
         'syn_weight': 1,
         'sec_id': 1,  # dend
@@ -757,16 +881,18 @@ edge_params = {
         'connector_class': ReciprocalConnector,
         'connector_params': {
             'p0': GaussianDropoff(
-                stdev=99.25, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                ptotal=0.22, ptotal_dist_range=ptotal_dist_range,
-                dist_type='cylindrical'),  # 22% total
+                stdev=99.84, min_dist=0., max_dist=max_conn_dist,
+                ptotal=0.22, ptotal_dist_range=(0., 100.),
+                dist_type='cylindrical'),
             'p0_arg': cylindrical_dist_z,
             'p1': GaussianDropoff(
-                stdev=95.98, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                pmax=0.17 + 0.20, ptotal_dist_range=ptotal_dist_range,
-                dist_type='spherical'),  # 17% unidirectional
+                stdev=96.60, min_dist=min_conn_dist, max_dist=max_conn_dist,
+                ptotal=0.36, ptotal_dist_range=(min_conn_dist, 100.),
+                dist_type='spherical'),
             'p1_arg': spherical_dist,
-            'pr': 0.20, 'estimate_rho': True  # 20% reciprocal
+            'pr': 0.17,
+            'estimate_rho': True,
+            'dist_range_backward': (min_conn_dist, 100.)
             },
         'syn_weight': 1,
         'sec_id': 1,  # dend
@@ -781,76 +907,65 @@ edge_params = {
         'sec_x': 0.5,
         'dynamics_params': 'FSI2CS.json'
     },
-    'LTS2LTS': {
+    'CP2LTS': {
         'connector_class': ReciprocalConnector,
         'connector_params': {
             'p0': GaussianDropoff(
-                stdev=131.48, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                ptotal=0.034 / 2 + 0.043, ptotal_dist_range=ptotal_dist_range,
-                dist_type='spherical'),  # 3.4% unidirectional
-            'p0_arg': spherical_dist,
-            'pr': 0.043, 'estimate_rho': True  # 4.3% reciprocal
-            },
-        'syn_weight': 1,
-        'sec_id': 0,  # soma
-        'sec_x': 0.5,
-        'dynamics_params': 'INT2INT.json'
-    },
-    'PN2LTS': {
-        'connector_class': ReciprocalConnector,
-        'connector_params': {
-            'p0': GaussianDropoff(
-                stdev=99.25, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                ptotal=0.57, ptotal_dist_range=ptotal_dist_range,
+                stdev=99.84, min_dist=0., max_dist=max_conn_dist,
+                ptotal=0.28, ptotal_dist_range=(0., 100.),
                 dist_type='cylindrical'),
             'p0_arg': cylindrical_dist_z,
             'p1': GaussianDropoff(
-                stdev=95.98, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                pmax=0.35, ptotal_dist_range=ptotal_dist_range,
+                stdev=96.60, min_dist=min_conn_dist, max_dist=max_conn_dist,
+                ptotal=0.39, ptotal_dist_range=(min_conn_dist, 100.),
                 dist_type='spherical'),
             'p1_arg': spherical_dist,
-            'pr': 0.2, 'estimate_rho': True
+            'pr': 0.16,
+            'estimate_rho': True,
+            'dist_range_backward': (min_conn_dist, 100.)
             },
         'syn_weight': 1,
         'sec_id': 1,  # dend
         'sec_x': 0.5,
         'dynamics_params': 'PN2LTS.json'
     },
-    'LTS2PN': {
+    'LTS2CP': {
         'connector_class': get_connector,
-        'connector_params': {'param': 'PN2LTS'},
+        'connector_params': {'param': 'CP2LTS'},
         'syn_weight': 1,
         'sec_id': 2,
         'sec_x': 0.9,  # end of apic
         'dynamics_params': 'LTS2PN.json'
     },
-    'FSI2LTS': {
+    'CS2LTS': {
         'connector_class': ReciprocalConnector,
         'connector_params': {
             'p0': GaussianDropoff(
-                stdev=131.48, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                ptotal=0.34 + 0.21, ptotal_dist_range=ptotal_dist_range,
-                dist_type='spherical'),  # 34% unidirectional
-            'p0_arg': spherical_dist,
+                stdev=99.84, min_dist=0., max_dist=max_conn_dist,
+                ptotal=0.13, ptotal_dist_range=(0., 100.),
+                dist_type='cylindrical'),
+            'p0_arg': cylindrical_dist_z,
             'p1': GaussianDropoff(
-                stdev=95.98, min_dist=min_conn_dist, max_dist=max_conn_dist,
-                pmax=0.53 + 0.21, ptotal_dist_range=ptotal_dist_range,
-                dist_type='spherical'),  # 53% unidirectional
+                stdev=96.60, min_dist=min_conn_dist, max_dist=max_conn_dist,
+                ptotal=0.086, ptotal_dist_range=(min_conn_dist, 100.),
+                dist_type='spherical'),
             'p1_arg': spherical_dist,
-            'pr': 0.21, 'estimate_rho': True  # 21% reciprocal
+            'pr': 0.057,
+            'estimate_rho': True,
+            'dist_range_backward': (min_conn_dist, 100.)
             },
         'syn_weight': 1,
-        'sec_id': 0,  # soma
+        'sec_id': 1,  # dend
         'sec_x': 0.5,
-        'dynamics_params': 'FSI2LTS.json'
+        'dynamics_params': 'PN2LTS.json'
     },
-    'LTS2FSI': {
+    'LTS2CS': {
         'connector_class': get_connector,
-        'connector_params': {'param': 'FSI2LTS'},
+        'connector_params': {'param': 'CS2LTS'},
         'syn_weight': 1,
-        'sec_id': 0,  # soma
-        'sec_x': 0.5,
-        'dynamics_params': 'LTS2FSI.json'
+        'sec_id': 2,
+        'sec_x': 0.9,  # end of apic
+        'dynamics_params': 'LTS2PN.json'
     },
     'Thal2CP': {
         'connector_class': OneToOneSequentialConnector,

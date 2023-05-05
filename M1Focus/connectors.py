@@ -1,10 +1,11 @@
 from abc import ABC, abstractmethod
 import numpy as np
-from numpy import random
 from scipy.special import erf
 from scipy.optimize import minimize_scalar
 from functools import partial
 import time
+
+rng = np.random.default_rng()
 
 ##############################################################################
 ############################## CONNECT CELLS #################################
@@ -16,7 +17,7 @@ def decision(prob, size=None):
     prob: scalar input
     Return bool array if size specified, otherwise scalar
     """
-    return (random.rand() if size is None else random.rand(size)) < prob
+    return rng.random(size) < prob
 
 
 def decisions(prob):
@@ -26,7 +27,7 @@ def decisions(prob):
     Return bool array of the same shape
     """
     prob = np.asarray(prob)
-    return random.rand(*prob.shape) < prob
+    return rng.random(prob.shape) < prob
 
 
 def euclid_dist(p1, p2):
@@ -292,7 +293,7 @@ class ReciprocalConnector(AbstractConnector):
     Algorithm:
         Create random connection for every pair of cells independently,
         following a bivariate Bernoulli distribution. Each variable is 0 or 1,
-        whehter a connection exists in a forward or backward direction. There
+        whether a connection exists in a forward or backward direction. There
         are four possible outcomes for each pair, no connection, unidirectional
         connection in two ways, and reciprocal connection. The probability of
         each outcome forms a contingency table.
@@ -308,8 +309,8 @@ class ReciprocalConnector(AbstractConnector):
         pr = p0 * p1 when two directions are independent. The correlation
         coefficient rho between the two has a relation with pr as follow.
         rho = (pr-p0*p1) / (p0*(1-p0)*p1*(1-p1))^(1/2)
-        Generating random outcome consists of two steps. Fisrt draw random
-        outcome for foward connection with probability p0. Then draw backward
+        Generating random outcome consists of two steps. First draw random
+        outcome for forward connection with probability p0. Then draw backward
         outcome following a conditional probability given the forward outcome,
         represented by p0, p1, and either pr or rho.
 
@@ -386,12 +387,19 @@ class ReciprocalConnector(AbstractConnector):
             estimation is done before generating random connections. The values
             of p0, p0_arg, p1, p1_arg can be cached during estimation of rho
             and retrieved when generating random connections for performance.
+        dist_range_forward: If specified, when estimating rho, consider only
+            cell pairs whose distance (p0_arg) is within the specified range.
+        dist_range_backward: Similar to dist_range_forward but consider
+            backward distance range (p1_arg) instead. If both are specified,
+            consider only cell pairs whose both distances are within range. If
+            neither is specified, infer valid pairs by non-zero connection
+            probability.
         rho: The correlation coefficient rho. When specified, do not estimate
             it but instead use the given value throughout, pr will not be used.
             In cases where both p0 and p1 are simple functions, i.e., are
             constant on their support, e.g., function UniformInRange(), the
             estimation of rho will be equal to pr_2_rho(p0, p1, pr) where p0,
-            p1 are non-zero. Estimation is not necessary. Simply set rho.
+            p1 are non-zero. Estimation is not necessary. Directly set rho.
         n_syn0, n_syn1: Number of synapses in the forward and backward
             connection if connected. It can be a constant or a (deterministic
             or random) function whose input arguments are two node objects in
@@ -439,6 +447,7 @@ class ReciprocalConnector(AbstractConnector):
     def __init__(self, p0=1., p1=1., symmetric_p1=False,
                  p0_arg=None, p1_arg=None, symmetric_p1_arg=False,
                  pr=0., pr_arg=None, estimate_rho=True, rho=None,
+                 dist_range_forward=None, dist_range_backward=None,
                  n_syn0=1, n_syn1=1, autapses=False,
                  cache_data=True, verbose=True):
         var_set = set(('p0', 'p0_arg', 'p1', 'p1_arg',
@@ -449,6 +458,8 @@ class ReciprocalConnector(AbstractConnector):
         self.symmetric_p1_arg = symmetric_p1_arg
 
         self.estimate_rho = estimate_rho and not callable(pr) and rho is None
+        self.dist_range_forward = dist_range_forward
+        self.dist_range_backward = dist_range_backward
         self.rho = rho
 
         self.autapses = autapses
@@ -707,6 +718,27 @@ class ReciprocalConnector(AbstractConnector):
             print('Output of %s will be cached.'
                   % ', '.join(self.cache.cache_dict))
 
+    def setup_dist_range_checker(self):
+        # Checker that determines whether to consider a pair for rho estimation
+        if self.dist_range_forward is None and self.dist_range_backward is None:
+            def checker(var):
+                p0, p1 = var[2:]
+                return p0 > 0 and p1 > 0
+        else:
+            def in_range(p_arg, dist_range):
+                return p_arg >= dist_range[0] and p_arg <= dist_range[1]
+            r0, r1 = self.dist_range_forward, self.dist_range_backward
+            if r1 is None:
+                def checker(var):
+                    return in_range(var[0], r0)
+            elif r0 is None:
+                def checker(var):
+                    return in_range(var[1], r1)
+            else:
+                def checker(var):
+                    return in_range(var[0], r0) and in_range(var[1], r1)
+        return checker
+
     def initialize(self):
         self.setup_variables()
         self.cache_variables()
@@ -728,17 +760,18 @@ class ReciprocalConnector(AbstractConnector):
         if self.verbose:
             self.timer = Timer()
         if self.estimate_rho:
-            # Make sure each cacheable function runs excatly once per iteration
+            dist_range_checker = self.setup_dist_range_checker()
             p0p1_sum = 0.
             norm_fac_sum = 0.
             n = 0
+            # Make sure each cacheable function runs excatly once per iteration
             for i, j in self.iterate_pairs():
-                _, _, p0, p1 = self.calc_pair(i, j)
-                p0p1 = p0 * p1
-                possible = p0p1 > 0
-                if possible:
+                var = self.calc_pair(i, j)
+                valid = dist_range_checker(var)
+                if valid:
                     n += 1
-                    p0p1_sum += p0p1
+                    p0, p1 = var[2:]
+                    p0p1_sum += p0 * p1
                     norm_fac_sum += (p0 * (1 - p0) * p1 * (1 - p1)) ** .5
             if norm_fac_sum > 0:
                 rho = (self.pr() * n - p0p1_sum) / norm_fac_sum
@@ -1021,7 +1054,7 @@ class UnidirectionConnector(AbstractConnector):
         """Print connection numbers after connections built"""
         print("Number of connected pairs: %d" % self.n_conn)
         print("Number of possible connections: %d" % self.n_poss)
-        print("Fraction of connected pairs in possible ones: %.2f%%)"
+        print("Fraction of connected pairs in possible ones: %.2f%%"
               % (100. * self.n_conn / self.n_poss) if self.n_poss else 0.)
         print("Number of total pairs: %d" % self.n_pair)
         print("Fraction of connected pairs in all pairs: %.2f%%\n"
@@ -1185,7 +1218,7 @@ def syn_dist_delay_feng(source, target,
         dist = euclid_dist(target['positions'], source['positions'])
     else:
         dist = connector.get_conn_prop(source.node_id, target.node_id)
-    del_fluc = fluc_stdev * random.randn()
+    del_fluc = fluc_stdev * rng.normal()
     delay = max(dist / SYN_VELOCITY + SYN_MIN_DELAY + del_fluc, 0.)
     return delay
 
@@ -1201,7 +1234,7 @@ def syn_uniform_delay_section(source, target, low=0.5, high=1,
                               sec_id=None, sec_x=0.9, **kwargs):
     if sec_id is None:
         sec_id = get_target_sec_id(source, target)
-    return random.uniform(low, high), sec_id, sec_x
+    return rng.uniform(low, high), sec_id, sec_x
 
 
 # The function below is not necessary if sec_id is specified in edge parameters

@@ -48,11 +48,11 @@ begintemplate CP_Cell
 
 		//         Conductance values         //
 		gna = 0.015
-		gnap = 0.000555 // 0.000551 
-		gkdr = 0.002//0.002 
+		gnap = 0.000555 // 0.000551
+		gkdr = 0.002//0.002
 		ghd = 1.5e-5//1.5e-5
 		gca = 5.5e-4 
-		gm = 0.00224 // 0.00222  
+		gm = 0.00224 // 0.00222
 		gsAHP = 0.0002//0.0012
 		gkap = 0.002 
 		gleak = 2.5e-5 
