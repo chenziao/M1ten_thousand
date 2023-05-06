@@ -8,8 +8,8 @@ import connectors
 from connectors import (
     spherical_dist, cylindrical_dist_z, GaussianDropoff, UniformInRange,
     pr_2_rho, ReciprocalConnector, UnidirectionConnector,
-    OneToOneSequentialConnector, syn_dist_delay_feng_section,
-    syn_dist_delay_feng, syn_uniform_delay_section
+    OneToOneSequentialConnector, CorrelatedGapJunction,
+    syn_dist_delay_feng_section_PN, syn_dist_delay_feng
 )
 
 ##############################################################################
@@ -540,7 +540,7 @@ edge_definitions = [
             'target': {'pop_name': ['CP']}
         },
         'param': 'CP2CP',
-        'add_properties': 'syn_dist_delay_feng_default'
+        'add_properties': 'syn_dist_delay_feng_section_PN'
     },
     {   # CS -> CS Reciprocal
         'network': 'cortex',
@@ -549,7 +549,7 @@ edge_definitions = [
             'target': {'pop_name': ['CS']}
         },
         'param': 'CS2CS',
-        'add_properties': 'syn_dist_delay_feng_default'
+        'add_properties': 'syn_dist_delay_feng_section_PN'
     },
     {   # CP -> CS Unidirectional
         'network': 'cortex',
@@ -558,7 +558,7 @@ edge_definitions = [
             'target': {'pop_name': ['CS']}
         },
         'param': 'CP2CS',
-        'add_properties': 'syn_dist_delay_feng_default'
+        'add_properties': 'syn_dist_delay_feng_section_PN'
     },
     {   # CS -> CP Unidirectional
         'network': 'cortex',
@@ -567,7 +567,7 @@ edge_definitions = [
             'target': {'pop_name': ['CP']}
         },
         'param': 'CS2CP',
-        'add_properties': 'syn_dist_delay_feng_default'
+        'add_properties': 'syn_dist_delay_feng_section_PN'
     },
     {   # FSI -> FSI Reciprocal
         'network': 'cortex',
@@ -736,8 +736,6 @@ edge_params = {
             'dist_range_forward': (0., 100.)
             },
         'syn_weight': 1,
-        'sec_id': 2,
-        'sec_x': 0.9,  # end of apic
         'dynamics_params': 'CP2CP.json'
     },
     'CS2CS': {
@@ -753,8 +751,6 @@ edge_params = {
             'dist_range_forward': (0., 100.)
             },
         'syn_weight': 1,
-        'sec_id': 2,
-        'sec_x': 0.9,  # end of apic
         'dynamics_params': 'CS2CS.json'
     },
     'CP2CS': {
@@ -767,8 +763,6 @@ edge_params = {
             'p_arg': cylindrical_dist_z,
             },
         'syn_weight': 1,
-        'sec_id': 2,
-        'sec_x': 0.9,  # end of apic
         'dynamics_params': 'CP2CS.json'  # same as 'CS2CS.json'
     },
     'CS2CP': {
@@ -781,8 +775,6 @@ edge_params = {
             'p_arg': cylindrical_dist_z,
             },
         'syn_weight': 1,
-        'sec_id': 2,
-        'sec_x': 0.9,  # end of apic
         'dynamics_params': 'CS2CS.json'
     },
     'FSI2FSI': {
@@ -934,7 +926,7 @@ edge_params = {
         'connector_params': {'param': 'CP2LTS'},
         'syn_weight': 1,
         'sec_id': 2,
-        'sec_x': 0.9,  # end of apic
+        'sec_x': 0.8,  # end of apic
         'dynamics_params': 'LTS2PN.json'
     },
     'CS2LTS': {
@@ -964,7 +956,7 @@ edge_params = {
         'connector_params': {'param': 'CS2LTS'},
         'syn_weight': 1,
         'sec_id': 2,
-        'sec_x': 0.9,  # end of apic
+        'sec_x': 0.8,  # end of apic
         'dynamics_params': 'LTS2PN.json'
     },
     'Thal2CP': {
@@ -972,7 +964,7 @@ edge_params = {
         'syn_weight': 1,
         'delay': 0.0,
         'sec_id': 2,
-        'sec_x': 0.9,  # end of apic
+        'sec_x': 0.8,  # end of apic
         'dynamics_params': 'Thal2CP.json'
     },
     'Thal2CS': {
@@ -981,7 +973,7 @@ edge_params = {
         'syn_weight': 1,
         'delay': 0.0,
         'sec_id': 2,
-        'sec_x': 0.9,  # end of apic
+        'sec_x': 0.8,  # end of apic
         'dynamics_params': 'Thal2CS.json'  # same as 'Thal2CP.json'
     },
     'Intbase2FSI': {
@@ -1005,22 +997,16 @@ edge_params = {
 
 # Will be called by conn.add_properties() for the associated connection
 edge_add_properties = {
-    'syn_dist_delay_feng_section_default': {
+    'syn_dist_delay_feng_section_PN': {
         'names': ['delay', 'sec_id', 'sec_x'],
-        'rule': syn_dist_delay_feng_section,
-        'rule_params': {'sec_x': 0.9},
+        'rule': syn_dist_delay_feng_section_PN,
+        'rule_params': {'p': 0.9, 'sec_id': (1, 2), 'sec_x': (0.4, 0.6)},
         'dtypes': [float, np.int32, float]
     },
     'syn_dist_delay_feng_default': {
         'names': 'delay',
         'rule': syn_dist_delay_feng,
         'dtypes': float
-    },
-    'syn_uniform_delay_section_default': {
-        'names': ['delay', 'sec_id', 'sec_x'],
-        'rule': syn_uniform_delay_section,
-        'rule_params': {'sec_x': 0.9},
-        'dtypes': [float, np.int32, float]
     }
 }
 
@@ -1123,11 +1109,15 @@ if edge_effects:
 net = networks['cortex']
 population = net.nodes(pop_name='FSI')
 
-gap_junc_FSI = UnidirectionConnector(
-    p=UniformInRange(
-        p=0.4, min_dist=min_conn_dist, max_dist=max_conn_dist
-        ),
-    p_arg=spherical_dist, n_syn=1
+# gap junction probability correlated with chemical synapse
+gap_junc_FSI = CorrelatedGapJunction(
+    p_non=GaussianDropoff(
+        mean=min_conn_dist, stdev=74.28,
+        min_dist=min_conn_dist, max_dist=max_conn_dist,
+        ptotal=0.267, ptotal_dist_range=(min_conn_dist, 200.),
+        dist_type='spherical'),
+    p_uni=0.56, p_rec=1.,
+    connector=edge_params['FSI2FSI']['connector_object']
 )
 gap_junc_FSI.setup_nodes(source=population, target=population)
 
@@ -1140,11 +1130,16 @@ conn._edge_type_properties['sec_x'] = 0.5
 net = networks['cortex']
 population = net.nodes(pop_name='LTS')
 
-gap_junc_LTS = UnidirectionConnector(
-    p=UniformInRange(
-        p=0.3, min_dist=min_conn_dist, max_dist=max_conn_dist
-        ),
-    p_arg=spherical_dist, n_syn=1
+# gap junction probability uncorrelated with chemical synapse
+LTS_uncorr_p = GaussianDropoff(
+    mean=min_conn_dist, stdev=74.28,
+    min_dist=min_conn_dist, max_dist=max_conn_dist,
+    ptotal=0.85, ptotal_dist_range=(min_conn_dist, 50.),
+    dist_type='spherical'
+)
+gap_junc_LTS = CorrelatedGapJunction(
+    p_non=LTS_uncorr_p, p_uni=LTS_uncorr_p, p_rec=LTS_uncorr_p,
+    connector=edge_params['LTS2LTS']['connector_object']
 )
 gap_junc_LTS.setup_nodes(source=population, target=population)
 

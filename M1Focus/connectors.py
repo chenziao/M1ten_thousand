@@ -450,9 +450,10 @@ class ReciprocalConnector(AbstractConnector):
                  dist_range_forward=None, dist_range_backward=None,
                  n_syn0=1, n_syn1=1, autapses=False,
                  cache_data=True, verbose=True):
-        var_set = set(('p0', 'p0_arg', 'p1', 'p1_arg',
-                       'pr', 'pr_arg', 'n_syn0', 'n_syn1'))
-        self.vars = {k: v for k, v in locals().items() if k in var_set}
+        args = locals()
+        var_set = ('p0', 'p0_arg', 'p1', 'p1_arg',
+                   'pr', 'pr_arg', 'n_syn0', 'n_syn1')
+        self.vars = {key: args[key] for key in var_set}
 
         self.symmetric_p1 = symmetric_p1 and symmetric_p1_arg
         self.symmetric_p1_arg = symmetric_p1_arg
@@ -479,9 +480,8 @@ class ReciprocalConnector(AbstractConnector):
                     not self.is_same_pop(source, self.target) or
                     not self.is_same_pop(target, self.source)):
                 raise ValueError("Source or target population not consistent.")
-            if self.verbose:
-                print("Skip adding nodes for the backward stage.")
-            return  # skip if not at the initial stage
+            # Skip adding nodes for the backward stage.
+            return
 
         # Update node pools
         self.source = source
@@ -960,8 +960,9 @@ class UnidirectionConnector(AbstractConnector):
     """
 
     def __init__(self, p=1., p_arg=None, n_syn=1, verbose=True):
-        var_set = set(('p', 'p_arg', 'n_syn'))
-        self.vars = {k: v for k, v in locals().items() if k in var_set}
+        args = locals()
+        var_set = ('p', 'p_arg', 'n_syn')
+        self.vars = {key: args[key] for key in var_set}
 
         self.verbose = verbose
         self.conn_prop = {}
@@ -1059,6 +1060,112 @@ class UnidirectionConnector(AbstractConnector):
         print("Number of total pairs: %d" % self.n_pair)
         print("Fraction of connected pairs in all pairs: %.2f%%\n"
               % (100. * self.n_conn / self.n_pair))
+
+
+class CorrelatedGapJunction(UnidirectionConnector):
+    """
+    Object for buiilding gap junction connections in bmtk network model with
+    given probabilities within a single population which could be correlated
+    with the recurrent chemical synapses in this population.
+
+    Parameters:
+        p_non, p_uni, p_rec: Probabilities of gap junction connection for each
+            pair of cells given the following three conditions of chemical
+            synaptic connections between them, no connection, unidirectional,
+            and reciprocal, respectively. It can be a constant or a
+            deterministic function whose value must be within range [0, 1].
+        p_arg: Input argument for p_non, p_uni, or p_rec, when any of them is a
+            function, similar to p0_arg, p1_arg in ReciprocalConnector.
+        connector: Connector object used to generate the chemical synapses of
+            within this population, which contains the connection information
+            in its attribute `conn_prop`. So this connector should have
+            generated the chemical synapses before generating the gap junction.
+        verbose: Whether show verbose information in console.
+
+    Returns:
+        An object that works with BMTK to build edges in a network.
+
+    Important attributes:
+        Similar to `UnidirectionConnector`.
+    """
+    def __init__(self, p_non=1., p_uni=1., p_rec=1., p_arg=None,
+                 connector=None, verbose=True):
+        super().__init__(p=p_non, p_arg=p_arg, verbose=verbose)
+        self.vars['p_non'] = self.vars.pop('p')
+        self.vars['p_uni'] = p_uni
+        self.vars['p_rec'] = p_rec
+        self.connector = connector
+        conn_prop = connector.conn_prop
+        if isinstance(conn_prop, list):
+            conn_prop = conn_prop[0]
+        self.ref_conn_prop = conn_prop
+
+    def setup_nodes(self, source=None, target=None):
+        super().setup_nodes(source=source, target=target)
+        if len(self.source) != len(self.source):
+            raise ValueError("Source and target must be the same for "
+                             "gap junction.")
+
+    def conn_exist(self, sid, tid):
+        trg_dict = self.ref_conn_prop.get(sid)
+        if trg_dict is not None and tid in trg_dict:
+            return True, trg_dict[tid]
+        else:
+            return False, None
+
+    def connection_type(self, sid, tid):
+        conn0, prop0 = self.conn_exist(sid, tid)
+        conn1, prop1 = self.conn_exist(tid, sid)
+        return conn0 + conn1, prop0 if conn0 else prop1
+
+    def initialize(self):
+        super().initialize()
+        self.has_p_arg = self.vars['p_arg'] is not None
+        if not self.has_p_arg:
+            var = self.connector.vars
+            self.p_arg = var['p_arg'] if 'p_arg' in var else var['p0_arg']
+        self.ps = [self.p_non, self.p_uni, self.p_rec]
+
+    def make_connection(self, source, target, *args, **kwargs):
+        """Assign gap junction per iteration using one_to_one iterator"""
+        # Initialize in the first iteration
+        if self.iter_count == 0:
+            self.initialize()
+            if self.verbose:
+                src_str, trg_str = self.get_nodes_info()
+                print("\nStart building gap junction \n  in " + src_str)
+
+        # Consider each pair only once
+        nsyns = 0
+        i, j = divmod(self.iter_count, self.n_pair)
+        if i < j:
+            sid, tid = source.node_id, target.node_id
+            conn_type, p_arg = self.connection_type(sid, tid)
+            if self.has_p_arg or not conn_type:
+                p_arg = self.p_arg(source, target)
+            p = self.ps[conn_type](p_arg)
+            possible = p > 0
+            self.n_poss += possible
+            if possible and decision(p):
+                nsyns = 1
+                self.add_conn_prop(sid, tid, p_arg)
+                self.add_conn_prop(tid, sid, p_arg)
+                self.n_conn += 1
+
+        self.iter_count += 1
+
+        # Detect end of iteration
+        if self.iter_count == self.n_pair:
+            if self.verbose:
+                self.connection_number_info()
+                self.timer.report('Done! \nTime for building connections')
+        return nsyns
+
+    def connection_number_info(self):
+        n_pair = self.n_pair
+        self.n_pair = (n_pair - len(self.source)) // 2
+        super().connection_number_info()
+        self.n_pair = n_pair
 
 
 class OneToOneSequentialConnector(AbstractConnector):
@@ -1223,18 +1330,13 @@ def syn_dist_delay_feng(source, target,
     return delay
 
 
-def syn_dist_delay_feng_section(source, target, connector=None,
-                                sec_id=None, sec_x=0.9):
-    if sec_id is None:
-        sec_id = get_target_sec_id(source, target)
-    return syn_dist_delay_feng(source, target, connector), sec_id, sec_x
-
-
-def syn_uniform_delay_section(source, target, low=0.5, high=1,
-                              sec_id=None, sec_x=0.9, **kwargs):
-    if sec_id is None:
-        sec_id = get_target_sec_id(source, target)
-    return rng.uniform(low, high), sec_id, sec_x
+def syn_dist_delay_feng_section_PN(source, target, p=0.9,
+                                   sec_id=(1, 2), sec_x=(0.4, 0.6), **kwargs):
+    """Synapse location follows a Bernoulli distribution, with probability p
+    to obtain the former in sec_id and sec_x"""
+    syn_loc = int(not decision(p))
+    delay = syn_dist_delay_feng(source, target, **kwargs)
+    return delay, sec_id[syn_loc], sec_x[syn_loc]
 
 
 # The function below is not necessary if sec_id is specified in edge parameters
@@ -1256,3 +1358,16 @@ def get_target_sec_id(source, target):
             # return 0
             import pdb; pdb.set_trace()
     return sec_id
+
+def syn_dist_delay_feng_section(source, target, connector=None,
+                                sec_id=None, sec_x=0.9):
+    if sec_id is None:
+        sec_id = get_target_sec_id(source, target)
+    return syn_dist_delay_feng(source, target, connector), sec_id, sec_x
+
+
+def syn_uniform_delay_section(source, target, low=0.5, high=1,
+                              sec_id=None, sec_x=0.9, **kwargs):
+    if sec_id is None:
+        sec_id = get_target_sec_id(source, target)
+    return rng.uniform(low, high), sec_id, sec_x
