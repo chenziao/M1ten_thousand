@@ -24,7 +24,7 @@ t_sim = 11500.0
 dt = 0.05
 
 # Network size and dimensions
-num_cells = 1000  # 10000
+num_cells = 10000  # 10000
 column_width, column_height = 600., 500.
 x_start, x_end = - column_width / 2, column_width / 2
 y_start, y_end = - column_width / 2, column_width / 2
@@ -32,7 +32,7 @@ z_start, z_end = - column_height / 2, column_height / 2
 z_5A = 0.
 
 # Distance constraint for all cells
-min_conn_dist = 25.0  # um. PN soma diameter
+min_conn_dist = 20.0  # um. PN soma diameter
 max_conn_dist = 300.0  # or np.inf
 # Distance range for total probability in estimation of Gaussian drop function
 ptotal_dist_range = (0., 150.)
@@ -81,7 +81,7 @@ num_cells_5B = numCP_5B + numCS_5B + numFSI_5B + numLTS_5B
 
 # Generate random cell positions
 # Use poisson-disc sampling to generate positions with minimum distance limit.
-use_poiss_disc = False
+use_poiss_disc = True
 
 # Get positions for cells in the core
 def samples_in_core(samples):
@@ -137,17 +137,25 @@ def scale_cube(samples):
 if use_poiss_disc:
     from scipy.stats import qmc  # qmc.PoissonDisk new in scipy 1.10.0
 
-    min_conn_dist = 30.0
+    ncand = 30  # number of candidates (related to density of points)
     radius = min_conn_dist / side_length
-    engine = qmc.PoissonDisk(d=3, radius=radius, ncandidates=30, seed=rng)
+    engine = qmc.PoissonDisk(d=3, radius=radius, ncandidates=ncand, seed=rng)
     samples = scale_cube(engine.fill_space())
 
     core_idx, pos_list_5A, pos_list_5B = samples_in_core(samples)
+    print("Number of positions in 5A, 5B: (%d, %d)"
+          % (len(pos_list_5A), len(pos_list_5B)))
+    print("Number of cells in 5A, 5B: (%d, %d)"
+          % (num_cells_5A, num_cells_5B))
     if len(pos_list_5A) < num_cells_5A or len(pos_list_5B) < num_cells_5B:
         raise ValueError("There are not enough position samples generated.")
     if edge_effects:
         shell_pos_list_5A, shell_pos_list_5B = \
             samples_in_shell(samples[~core_idx])
+        print("Number of positions in 5A, 5B: (%d, %d)"
+              % (len(shell_pos_list_5A), len(shell_pos_list_5B)))
+        print("Number of cells in 5A, 5B: (%d, %d)"
+              % (virt_num_cells_5A, virt_num_cells_5B))
         if len(shell_pos_list_5A) < virt_num_cells_5A or \
                 len(shell_pos_list_5B) < virt_num_cells_5B:
             raise ValueError("There are not enough position samples "
@@ -1112,7 +1120,7 @@ population = net.nodes(pop_name='FSI')
 # gap junction probability correlated with chemical synapse
 gap_junc_FSI = CorrelatedGapJunction(
     p_non=GaussianDropoff(
-        mean=min_conn_dist, stdev=74.28,
+        mean=min_conn_dist, stdev=98.0,
         min_dist=min_conn_dist, max_dist=max_conn_dist,
         ptotal=0.267, ptotal_dist_range=(min_conn_dist, 200.),
         dist_type='spherical'),
@@ -1132,7 +1140,7 @@ population = net.nodes(pop_name='LTS')
 
 # gap junction probability uncorrelated with chemical synapse
 LTS_uncorr_p = GaussianDropoff(
-    mean=min_conn_dist, stdev=74.28,
+    mean=0., stdev=74.28,
     min_dist=min_conn_dist, max_dist=max_conn_dist,
     ptotal=0.85, ptotal_dist_range=(min_conn_dist, 50.),
     dist_type='spherical'

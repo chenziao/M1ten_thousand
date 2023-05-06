@@ -13,15 +13,14 @@
 
 ## send mail to this address, alert at start, end and abortion of execution
 ##SBATCH --mail-type=ALL
-##SBATCH --mail-user=zc63@mail.missouri.edu
+##SBATCH --mail-user=zc963@mail.missouri.edu
 
 START=$(date)
+echo "Started running at $START."
 
 unset DISPLAY
 ## mpirun nrniv -mpi MC_main_small_forBeta_shortburstensamble.hoc #srun
 python build_network.py #srun
 
 END=$(date)
-
-echo "Started running at $START."
 echo "Done running simulation at $END"
