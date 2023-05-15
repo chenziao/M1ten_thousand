@@ -37,7 +37,7 @@ def psg_lognormal_fr(psg, node_ids, mean, stdev, times):
     """
     firing_rates = lognormal(mean, stdev, len(node_ids))
     for node_id, fr in zip(node_ids, firing_rates):
-        psg.add(node_ids=node_ids, firing_rate=fr, times=times)
+        psg.add(node_ids=node_id, firing_rate=fr, times=times)
     return firing_rates
 
 
@@ -205,6 +205,6 @@ def build_input(t_stop=T_SIM, n_assemblies=N_ASSEMBLIES):
 
 if __name__ == '__main__':
     if __file__ != sys.argv[-1]:
-        build_input(sys.argv[1:])
+        build_input(*sys.argv[1:])
     else:
         build_input()
