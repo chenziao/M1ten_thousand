@@ -20,7 +20,7 @@ rng = np.random.default_rng(randseed)
 connectors.rng = rng
 
 network_dir = 'network'
-t_sim = 11500.0
+t_sim = 12000.0
 dt = 0.05
 
 # Network size and dimensions
@@ -637,7 +637,7 @@ edge_definitions = [
             'source': {'pop_name': ['CS']},
             'target': {'pop_name': ['FSI']}
         },
-        'param': 'CP2FSI',
+        'param': 'CS2FSI',
         'add_properties': 'syn_dist_delay_feng_default'
     },
     {   # CS <- FSI backward
@@ -646,7 +646,7 @@ edge_definitions = [
             'source': {'pop_name': ['FSI']},
             'target': {'pop_name': ['CS']}
         },
-        'param': 'FSI2CP',
+        'param': 'FSI2CS',
         'add_properties': 'syn_dist_delay_feng_default'
     },
     {   # CP -> LTS forward
@@ -726,8 +726,8 @@ edge_definitions = [
 ]
 
 # edge_params should contain additional parameters to be added to add_edges()
-# The following parameters for random synapse placement are not necessary
-# in edge_params if sec_id and sec_x are specified instead.
+# The following parameters for random synapse placement are not necessary in
+# edge_params if afferent_section_id and afferent_section_pos are specified.
 # distance_range: place synapse within distance range [dmin, dmax] from soma
 # target_sections: place synapse within the given sections in a list
 edge_params = {
@@ -799,8 +799,8 @@ edge_params = {
             # 'rho': pr_2_rho(0.103, 0.103, 0.04)  # use fixed rho instead
             },
         'syn_weight': 1,
-        'sec_id': 0,  # soma
-        'sec_x': 0.5,
+        'afferent_section_id': 0,  # soma
+        'afferent_section_pos': 0.5,
         'dynamics_params': 'FSI2FSI.json'
     },
     'LTS2LTS': {
@@ -813,8 +813,8 @@ edge_params = {
             'p_arg': spherical_dist
             },
         'syn_weight': 1,
-        'sec_id': 0,  # soma
-        'sec_x': 0.5,
+        'afferent_section_id': 0,  # soma
+        'afferent_section_pos': 0.5,
         'dynamics_params': 'INT2INT.json'
     },
     'FSI2LTS': {
@@ -835,16 +835,16 @@ edge_params = {
             'dist_range_forward': (min_conn_dist, 50.)
             },
         'syn_weight': 1,
-        'sec_id': 0,  # soma
-        'sec_x': 0.5,
+        'afferent_section_id': 0,  # soma
+        'afferent_section_pos': 0.5,
         'dynamics_params': 'FSI2LTS.json'
     },
     'LTS2FSI': {
         'connector_class': get_connector,
         'connector_params': {'param': 'FSI2LTS'},
         'syn_weight': 1,
-        'sec_id': 0,  # soma
-        'sec_x': 0.5,
+        'afferent_section_id': 0,  # soma
+        'afferent_section_pos': 0.5,
         'dynamics_params': 'LTS2FSI.json'
     },
     'CP2FSI': {
@@ -865,16 +865,16 @@ edge_params = {
             'dist_range_backward': (min_conn_dist, 100.)
             },
         'syn_weight': 1,
-        'sec_id': 1,  # dend
-        'sec_x': 0.5,
+        'afferent_section_id': 1,  # dend
+        'afferent_section_pos': 0.5,
         'dynamics_params': 'CP2FSI.json'
     },
     'FSI2CP': {
         'connector_class': get_connector,
         'connector_params': {'param': 'CP2FSI'},
         'syn_weight': 1,
-        'sec_id': 0,  # soma
-        'sec_x': 0.5,
+        'afferent_section_id': 0,  # soma
+        'afferent_section_pos': 0.5,
         'dynamics_params': 'FSI2CP.json'
     },
     'CS2FSI': {
@@ -895,16 +895,16 @@ edge_params = {
             'dist_range_backward': (min_conn_dist, 100.)
             },
         'syn_weight': 1,
-        'sec_id': 1,  # dend
-        'sec_x': 0.5,
+        'afferent_section_id': 1,  # dend
+        'afferent_section_pos': 0.5,
         'dynamics_params': 'CS2FSI.json'
     },
     'FSI2CS': {
         'connector_class': get_connector,
         'connector_params': {'param': 'CS2FSI'},
         'syn_weight': 1,
-        'sec_id': 0,  # soma
-        'sec_x': 0.5,
+        'afferent_section_id': 0,  # soma
+        'afferent_section_pos': 0.5,
         'dynamics_params': 'FSI2CS.json'
     },
     'CP2LTS': {
@@ -925,16 +925,16 @@ edge_params = {
             'dist_range_backward': (min_conn_dist, 100.)
             },
         'syn_weight': 1,
-        'sec_id': 1,  # dend
-        'sec_x': 0.5,
+        'afferent_section_id': 1,  # dend
+        'afferent_section_pos': 0.5,
         'dynamics_params': 'PN2LTS.json'
     },
     'LTS2CP': {
         'connector_class': get_connector,
         'connector_params': {'param': 'CP2LTS'},
         'syn_weight': 1,
-        'sec_id': 2,
-        'sec_x': 0.8,  # end of apic
+        'afferent_section_id': 2,
+        'afferent_section_pos': 0.8,  # end of apic
         'dynamics_params': 'LTS2PN.json'
     },
     'CS2LTS': {
@@ -955,24 +955,24 @@ edge_params = {
             'dist_range_backward': (min_conn_dist, 100.)
             },
         'syn_weight': 1,
-        'sec_id': 1,  # dend
-        'sec_x': 0.5,
+        'afferent_section_id': 1,  # dend
+        'afferent_section_pos': 0.5,
         'dynamics_params': 'PN2LTS.json'
     },
     'LTS2CS': {
         'connector_class': get_connector,
         'connector_params': {'param': 'CS2LTS'},
         'syn_weight': 1,
-        'sec_id': 2,
-        'sec_x': 0.8,  # end of apic
+        'afferent_section_id': 2,
+        'afferent_section_pos': 0.8,  # end of apic
         'dynamics_params': 'LTS2PN.json'
     },
     'Thal2CP': {
         'connector_class': OneToOneSequentialConnector,
         'syn_weight': 1,
         'delay': 0.0,
-        'sec_id': 2,
-        'sec_x': 0.8,  # end of apic
+        'afferent_section_id': 2,
+        'afferent_section_pos': 0.8,  # end of apic
         'dynamics_params': 'Thal2CP.json'
     },
     'Thal2CS': {
@@ -980,16 +980,16 @@ edge_params = {
         'connector_params': {'param': 'Thal2CP'},
         'syn_weight': 1,
         'delay': 0.0,
-        'sec_id': 2,
-        'sec_x': 0.8,  # end of apic
+        'afferent_section_id': 2,
+        'afferent_section_pos': 0.8,  # end of apic
         'dynamics_params': 'Thal2CS.json'  # same as 'Thal2CP.json'
     },
     'Intbase2FSI': {
         'connector_class': OneToOneSequentialConnector,
         'syn_weight': 1,
         'delay': 0.0,
-        'sec_id': 1,  # dend
-        'sec_x': 0.5,
+        'afferent_section_id': 1,  # dend
+        'afferent_section_pos': 0.5,
         'dynamics_params': 'Intbase2FSI.json'
     },
     'Intbase2LTS': {
@@ -997,8 +997,8 @@ edge_params = {
         'connector_params': {'param': 'Intbase2FSI'},
         'syn_weight': 1,
         'delay': 0.0,
-        'sec_id': 1,  # dend
-        'sec_x': 0.5,
+        'afferent_section_id': 1,  # dend
+        'afferent_section_pos': 0.5,
         'dynamics_params': 'Intbase2LTS.json'
     }
 }  # edges referenced by name
@@ -1006,7 +1006,7 @@ edge_params = {
 # Will be called by conn.add_properties() for the associated connection
 edge_add_properties = {
     'syn_dist_delay_feng_section_PN': {
-        'names': ['delay', 'sec_id', 'sec_x'],
+        'names': ['delay', 'afferent_section_id', 'afferent_section_pos'],
         'rule': syn_dist_delay_feng_section_PN,
         'rule_params': {'p': 0.9, 'sec_id': (1, 2), 'sec_x': (0.4, 0.6)},
         'dtypes': [float, np.int32, float]
@@ -1129,10 +1129,12 @@ gap_junc_FSI = CorrelatedGapJunction(
 )
 gap_junc_FSI.setup_nodes(source=population, target=population)
 
-conn = net.add_gap_junctions(resistance=1500, target_sections=None,
-                             **gap_junc_FSI.edge_params())
-conn._edge_type_properties['sec_id'] = 0
-conn._edge_type_properties['sec_x'] = 0.5
+resistance = 1500
+conn = net.add_edges(
+    is_gap_junction=True, syn_weight=resistance, target_sections=None,
+    afferent_section_id=0, afferent_section_pos=0.5,
+    **gap_junc_FSI.edge_params()
+)
 
 # LTS
 net = networks['cortex']
@@ -1151,10 +1153,13 @@ gap_junc_LTS = CorrelatedGapJunction(
 )
 gap_junc_LTS.setup_nodes(source=population, target=population)
 
-conn = net.add_gap_junctions(resistance=1500, target_sections=None,
-                             **gap_junc_LTS.edge_params())
-conn._edge_type_properties['sec_id'] = 0
-conn._edge_type_properties['sec_x'] = 0.5
+resistance = 1500
+conn = net.add_edges(
+    is_gap_junction=True, syn_weight=resistance, target_sections=None,
+    afferent_section_id=0, afferent_section_pos=0.5,
+    **gap_junc_LTS.edge_params()
+)
+
 
 ##########################################################################
 ###############################  BUILD  ##################################

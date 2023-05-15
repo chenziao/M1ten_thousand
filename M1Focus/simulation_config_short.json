@@ -6,7 +6,7 @@
     "target_simulator": "NEURON",
     "run": {
       "tstart": 0.0,
-      "tstop": 10000.0,
+      "tstop": 12000.0,
       "dt": 0.05,
       "dL": 2000000.0,
       "spike_threshold": -15.0,
@@ -18,10 +18,10 @@
     },
     "inputs": {
         "thalamus_base": {
-        "input_type": "spikes",
-        "module": "sonata",
-        "input_file": "$BASE_DIR/input/thalamus_base.h5",
-        "node_set": "thalamus"
+			"input_type": "spikes",
+			"module": "sonata",
+			"input_file": "$BASE_DIR/input/thalamus_base.h5",
+			"node_set": "thalamus"
         },
         "thalamus_short": {
             "input_type": "spikes",
@@ -29,28 +29,10 @@
             "input_file": "$BASE_DIR/input/thalamus_short.h5",
             "node_set": "thalamus"
         },
-        "CP_shell": {
+        "shell": {
             "input_type": "spikes",
             "module": "sonata",
-            "input_file": "$BASE_DIR/input/CP_shell_short.h5",
-            "node_set": "thalamus"
-        },
-        "CS_shell": {
-            "input_type": "spikes",
-            "module": "sonata",
-            "input_file": "$BASE_DIR/input/CS_shell_short.h5",
-            "node_set": "thalamus"
-        },
-        "FSI_shell": {
-            "input_type": "spikes",
-            "module": "sonata",
-            "input_file": "$BASE_DIR/input/FSI_shell_short.h5",
-            "node_set": "thalamus"
-        },
-        "LTS_shell": {
-            "input_type": "spikes",
-            "module": "sonata",
-            "input_file": "$BASE_DIR/input/LTS_shell_short.h5",
+            "input_file": "$BASE_DIR/input/shell.h5",
             "node_set": "thalamus"
         },
         "Intbase": {
