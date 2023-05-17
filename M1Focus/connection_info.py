@@ -3,7 +3,7 @@ import sys
 import numpy as np
 import pandas as pd
 
-from bmtools.cli.plugins.util.util import relation_matrix
+from bmtool.util.util import relation_matrix
 
 def conn_info(**kwargs):
 

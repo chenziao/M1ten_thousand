@@ -1,6 +1,6 @@
 import numpy as np
 import sys
-from bmtools.cli.plugins.util import util
+from bmtool.util import util
 
 def populations(config):
     nodes = util.load_nodes_from_config(config)

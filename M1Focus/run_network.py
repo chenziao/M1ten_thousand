@@ -4,7 +4,7 @@ import numpy as np
 import synapses
 import warnings
 import corebmtk
-#from bmtools.cli.plugins.util import util
+#from bmtool.util import util
 from neuron import h
 
 def populations(config):

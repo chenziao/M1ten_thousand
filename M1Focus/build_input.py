@@ -1,5 +1,5 @@
 import numpy as np
-from bmtools.cli.plugins.util import util
+from bmtool.util import util
 from bmtk.utils.reports.spike_trains import PoissonSpikeGenerator
 
 import sys
@@ -13,7 +13,6 @@ rng = np.random.default_rng(randseed)
 T_SIM = 12.  # sec. Simulation time
 N_ASSEMBLIES = 8  # number of assemblies
 INPUT_PATH = "./input"
-ASSEMBLY_ID_PATH = os.path.join(INPUT_PATH, "Assembly_ids.csv")
 
 
 def num_prop(ratio, N):
@@ -131,7 +130,8 @@ def build_input(t_stop=T_SIM, n_assemblies=N_ASSEMBLIES):
 
     Thal_nodes = nodes['thalamus']
     Thal_assy, PN_assy = get_assembly(Thal_nodes, Cortex_nodes, n_assemblies)
-    with open(ASSEMBLY_ID_PATH, 'w', newline='') as f:
+    assembly_id_file = os.path.join(INPUT_PATH, "Assembly_ids.csv")
+    with open(assembly_id_file, 'w', newline='') as f:
         writer = csv.writer(f, delimiter=',')
         writer.writerows(Thal_assy)
         writer.writerows(PN_assy)
@@ -176,8 +176,29 @@ def build_input(t_stop=T_SIM, n_assemblies=N_ASSEMBLIES):
         FSI_ids = df2node_id(shell_nodes['FSI'])
         LTS_ids = df2node_id(shell_nodes['LTS'])
 
+        # Select effective nodes in shell that only has connections to core
+        edge_paths = util.load_config("config.json")['networks']['edges']
+        for path in edge_paths:
+            if 'shell_cortex' in path['edge_types_file']:
+                _, shell_edges = util.load_edges(**path)
+        effective_shell = set(shell_edges['source_node_id'])
+
+        def effective_cell(cell_list, effect_set):
+            effect_list = [x for x in cell_list if x in effect_set]
+            ratio = len(effect_list) / len(cell_list)
+            return effect_list, ratio
+
+        PN_ids, r_PN = effective_cell(PN_ids, effective_shell)
+        FSI_ids, r_FSI = effective_cell(FSI_ids, effective_shell)
+        LTS_ids, r_LTS = effective_cell(LTS_ids, effective_shell)
+        print("Proportion of effective cells in shell.")
+        print("%.1f%% effective PN." % (100 * r_PN))
+        print("%.1f%% effective FSI." % (100 * r_FSI))
+        print("%.1f%% effective LTS." % (100 * r_LTS))
+
+        # Generate Poisson spike trains for shell cells
         psg = PoissonSpikeGenerator(population='shell')
-        constant_fr = True
+        constant_fr = False
         if constant_fr:
             # Constant mean firing rate for all cells
             psg.add(node_ids=PN_ids, firing_rate=0.5, times=sim_time)
@@ -200,7 +221,7 @@ def build_input(t_stop=T_SIM, n_assemblies=N_ASSEMBLIES):
 
         print("Shell cells: %.3f sec" % (time.perf_counter() - start_timer))
 
-    print("Done")
+    print("Done!")
 
 
 if __name__ == '__main__':

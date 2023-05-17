@@ -9,7 +9,7 @@ from connectors import (
     spherical_dist, cylindrical_dist_z, GaussianDropoff, UniformInRange,
     pr_2_rho, ReciprocalConnector, UnidirectionConnector,
     OneToOneSequentialConnector, CorrelatedGapJunction,
-    syn_dist_delay_feng_section_PN, syn_dist_delay_feng
+    syn_dist_delay_feng_section_PN, syn_section_PN, syn_dist_delay_feng
 )
 
 ##############################################################################
@@ -20,8 +20,8 @@ rng = np.random.default_rng(randseed)
 connectors.rng = rng
 
 network_dir = 'network'
-t_sim = 12000.0
-dt = 0.05
+t_sim = 12000.0  # ms
+dt = 0.05  # ms
 
 # Network size and dimensions
 num_cells = 10000  # 10000
@@ -1011,6 +1011,12 @@ edge_add_properties = {
         'rule_params': {'p': 0.9, 'sec_id': (1, 2), 'sec_x': (0.4, 0.6)},
         'dtypes': [float, np.int32, float]
     },
+    'syn_section_PN': {
+        'names': ['afferent_section_id', 'afferent_section_pos'],
+        'rule': syn_section_PN,
+        'rule_params': {'p': 0.9, 'sec_id': (1, 2), 'sec_x': (0.4, 0.6)},
+        'dtypes': [np.int32, float]
+    },
     'syn_dist_delay_feng_default': {
         'names': 'delay',
         'rule': syn_dist_delay_feng,
@@ -1092,6 +1098,11 @@ if edge_effects:
                 connector_params['verbose'] = connector.verbose
                 edge_params_val['connector_params'] = connector_params
         shell_edge_params[shell_edge['param']] = edge_params_val
+        # Set delay to 0
+        edge_params_val['delay'] = 0.0
+        add_properties = shell_edge.pop('add_properties')
+        if add_properties == 'syn_dist_delay_feng_section_PN':
+            shell_edge['add_properties'] = 'syn_section_PN'
 
     # Check parameters
     print("\nShell edges:")

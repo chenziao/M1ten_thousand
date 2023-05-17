@@ -1330,14 +1330,20 @@ def syn_dist_delay_feng(source, target,
     return delay
 
 
-def syn_dist_delay_feng_section_PN(source, target, p=0.9,
-                                   sec_id=(1, 2), sec_x=(0.4, 0.6), **kwargs):
+def syn_section_PN(source, target, p=0.9,
+                   sec_id=(1, 2), sec_x=(0.4, 0.6), **kwargs):
     """Synapse location follows a Bernoulli distribution, with probability p
     to obtain the former in sec_id and sec_x"""
     syn_loc = int(not decision(p))
-    delay = syn_dist_delay_feng(source, target, **kwargs)
-    return delay, sec_id[syn_loc], sec_x[syn_loc]
+    return sec_id[syn_loc], sec_x[syn_loc]
 
+
+def syn_dist_delay_feng_section_PN(source, target, p=0.9,
+                                   sec_id=(1, 2), sec_x=(0.4, 0.6), **kwargs):
+    """Assign both synapse delay and location"""
+    delay = syn_dist_delay_feng(source, target, **kwargs)
+    s_id, s_x = syn_section_PN(p=p, sec_id=sec_id, sec_x=sec_x)
+    return delay, s_id, s_x
 
 # The function below is not necessary if sec_id is specified in edge parameters
 # TODO: select based on cell types of a pair

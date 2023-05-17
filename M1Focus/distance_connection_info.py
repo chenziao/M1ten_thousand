@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import h5py
 
-from bmtools.cli.plugins.util.util import relation_matrix
+from bmtool.util.util import relation_matrix
 
 f = h5py.File('outputECP/spikes.h5')
 spikes = pd.DataFrame({'node_ids':f['spikes']['cortex']['node_ids'],'timestamps':f['spikes']['cortex']['timestamps']})

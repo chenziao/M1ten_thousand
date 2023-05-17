@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import sys
 import math
-from bmtools.cli.plugins.util import util
+from bmtool.util import util
 from os.path import exists
 from bmtk.analyzer.spike_trains import plot_raster
 import os, sys
