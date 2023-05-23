@@ -10,8 +10,8 @@ import time
 randseed = 4321
 rng = np.random.default_rng(randseed)
 
-T_SIM = 12.  # sec. Simulation time
-N_ASSEMBLIES = 8  # number of assemblies
+T_SIM = 16.  # sec. Simulation time
+N_ASSEMBLIES = 10  # number of assemblies
 INPUT_PATH = "./input"
 
 
@@ -137,11 +137,11 @@ def build_input(t_stop=T_SIM, n_assemblies=N_ASSEMBLIES):
         writer.writerows(PN_assy)
 
     firing_rate = 50.  # Hz. Poisson mean firing rate for burst input
-    thal_baseline_fr = 2.0  # Hz. Firing rate for thalamus baseline input
-    int_baseline_fr = 2.0  # Hz. Firing rate for interneuron baseline input
-    t_start = 0.5  # sec. Time to start burst input
-    on_time = 1.0  # sec. Burst input duration
-    off_time = 0.5  # sec. Silence duration
+    thal_baseline_fr = 0.0  # Hz. Firing rate for thalamus baseline input
+    int_baseline_fr = 0.0  # Hz. Firing rate for interneuron baseline input
+    t_start = 1.0  # sec. Time to start burst input
+    on_time = 0.5  # sec. Burst input duration
+    off_time = 1.0  # sec. Silence duration
     sim_time = (0, t_stop)  # Whole simulation
 
     # Short burst input for 1000 ms followed by 500 ms silence

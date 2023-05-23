@@ -136,8 +136,7 @@ ASSIGNED {
 	amp_i	(umho)
 	noise_e
 	noise_i
-
-        donotuse
+	donotuse
 }
 
 INITIAL {
@@ -158,7 +157,6 @@ INITIAL {
 BEFORE BREAKPOINT {
 	noise_e = normrand123()
 	noise_i = normrand123()
-	:printf("%g\n",noise_e)
 }
 
 BREAKPOINT {

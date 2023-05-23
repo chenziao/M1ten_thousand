@@ -92,8 +92,9 @@ NEURON {
 	POINT_PROCESS Gfluct2
 	RANGE g_e, g_i, E_e, E_i, g_e0, g_i0, g_e1, g_i1
 	RANGE std_e, std_i, tau_e, tau_i, D_e, D_i
-	RANGE new_seed
-	NONSPECIFIC_CURRENT i
+	NONSPECIFIC_CURRENT i_exc, i_inh
+	THREADSAFE
+	POINTER randObjPtr
 }
 
 UNITS {
@@ -120,7 +121,8 @@ PARAMETER {
 
 ASSIGNED {
 	v	(mV)		: membrane voltage
-	i 	(nA)		: fluctuating current
+	i_exc (nA)		: fluctuating current
+	i_inh (nA)		: fluctuating current
 	g_e	(umho)		: total excitatory conductance
 	g_i	(umho)		: total inhibitory conductance
 	g_e1	(umho)		: fluctuating excitatory conductance
@@ -131,6 +133,9 @@ ASSIGNED {
 	exp_i
 	amp_e	(umho)
 	amp_i	(umho)
+	noise_e
+	noise_i
+	randObjPtr
 }
 
 INITIAL {
@@ -148,34 +153,63 @@ INITIAL {
 	}
 }
 
+BEFORE BREAKPOINT {
+    noise_e = randGen()
+	noise_i = randGen()
+}
+
 BREAKPOINT {
 	SOLVE oup
 	g_e = g_e0 + g_e1
 	if(g_e < 0) { g_e = 0 }
 	g_i = g_i0 + g_i1
 	if(g_i < 0) { g_i = 0 }
-	i = g_e * (v - E_e) + g_i * (v - E_i)
+	i_exc = g_e * (v - E_e)
+	i_inh = g_i * (v - E_i)
 }
 
 
 PROCEDURE oup() {		: use Scop function normrand(mean, std_dev)
-   if(tau_e!=0) {
-	g_e1 =  exp_e * g_e1 + amp_e * normrand(0,1)
-   } else {
-	g_e1 = std_e * normrand(0,1)
-   }
-   if(tau_i!=0) {
-	g_i1 =  exp_i * g_i1 + amp_i * normrand(0,1)
-   } else {
-	g_i1 = std_i * normrand(0,1)
-   }
+	if(tau_e!=0) {
+		g_e1 =  exp_e * g_e1 + amp_e * noise_e
+	} else {
+		g_e1 = std_e * noise_e
+	}
+	if(tau_i!=0) {
+		g_i1 =  exp_i * g_i1 + amp_i * noise_i
+	} else {
+		g_i1 = std_i * noise_i
+	}
 }
 
 
-PROCEDURE new_seed(seed) {		: procedure to set the seed
-	set_seed(seed)
-	VERBATIM
-	  printf("Setting random generator with seed = %g\n", _lseed);
-	ENDVERBATIM
+VERBATIM
+double nrn_random_pick(void* r);
+void* nrn_random_arg(int argpos);
+ENDVERBATIM
+
+FUNCTION randGen() {
+VERBATIM
+   if (_p_randObjPtr) {
+      /*
+      :Supports separate independent but reproducible streams for
+      : each instance. However, the corresponding hoc Random
+      : distribution MUST be set to Random.normal(0,1)
+      */
+      _lrandGen = nrn_random_pick(_p_randObjPtr);
+   }else{
+      hoc_execerror("Random object ref not set correctly for randObjPtr"," only via hoc Random");
+   }
+ENDVERBATIM
 }
 
+PROCEDURE setRandObj() {
+VERBATIM
+   void** pv4 = (void**)(&_p_randObjPtr);
+   if (ifarg(1)) {
+      *pv4 = nrn_random_arg(1);
+   }else{
+      *pv4 = (void*)0;
+   }
+ENDVERBATIM
+}
