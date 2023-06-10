@@ -156,34 +156,37 @@ class GaussianDropoff(DistantDependentProbability):
         probability to all possible targets within the distance range [r1, r2]=
         `ptotal_dist_range` equals ptotal, assuming homogeneous cell density.
         That is, integral_r1^r2 {g(r)p(r)dr} = ptotal, where g is the Gaussian
-        function with pmax, p(r) is the cell density per unit distance at r.
+        function with pmax, p(r) is the cell density per unit distance at r
+        normalized by total cell number within the distance range.
         For cylindrical distance, p(r) = 2 * r / (r2^2 - r1^2)
         For spherical distance, p(r) = 3 * r^2 / (r2^3 - r1^3)
-        The solution has a closed form, but only if resulting pmax <= 1.
+        The solution has a closed form except that te error function erf is in
+        the expression, but only when resulting pmax <= 1.
 
         Caveat: When the calculated pmax > 1, the actual overall probability
         will be lower than expected and all cells within certain distance will
         be always connected. This usually happens when the distance range is
-        wide. Because a large population will be included for evaluating
-        ptotal, and there will be a significant drop in the Gaussian function
-        as distance get further. So, a large pmax will be required to achieve
-        the desired ptotal.
+        set too wide. Because a large population will be included for
+        evaluating ptotal, and there will be a significant drop in the Gaussian
+        function as distance gets further. So, a large pmax will be required to
+        achieve the desired ptotal.
         """
-        pmax = self.ptotal * NORM_COEF
         mu, sig = self.mean, self.stdev
         r1, r2 = self.ptotal_dist_range[:2]
         x1, x2 = (r1 - mu) / sig, (r2 - mu) / sig  # normalized distance
         if self.dist_type == 'cylindrical':
-            intgrl_1 = sig * mu / 2 * (erf(x2 / 2**.5) - erf(x1 / 2**.5))
-            intgrl_2 = - sig * sig * (gaussian(x2) - gaussian(x1))
-            pmax *= (r2**2 - r1**2) / 2 / (intgrl_1 + intgrl_2)
-        else:  # self.dist_type == 'spherical'
-            intgrl_1 = (sig * (sig**2 + mu**2) / 2 *
-                        (erf(x2 / 2**.5) - erf(x1 / 2**.5)))
-            intgrl_2 = - sig * sig * ((2 * mu + sig * x2) * gaussian(x2) -
-                                      (2 * mu + sig * x1) * gaussian(x1))
-            pmax *= (r2 ** 3 - r1 ** 3) / 3 / (intgrl_1 + intgrl_2)
-        return pmax
+            dr = r2 ** 2 - r1 ** 2
+            def F(x):
+                f1 = sig * mu / NORM_COEF * erf(x / 2**.5)
+                f2 = -2 * sig * sig * gaussian(x, pmax=1.)
+                return f1 + f2
+        else:
+            dr = r2 ** 3 - r1 ** 3
+            def F(x):
+                f1 = 1.5 * sig * (sig**2 + mu**2) / NORM_COEF * erf(x / 2**.5)
+                f2 = -3 * sig * sig * (2 * mu + sig * x) * gaussian(x, pmax=1.)
+                return f1 + f2
+        return self.ptotal * dr / (F(x2) - F(x1))
 
     def probability(self):
         pass  # to be set up in set_probability_func()
@@ -1342,7 +1345,7 @@ def syn_dist_delay_feng_section_PN(source, target, p=0.9,
                                    sec_id=(1, 2), sec_x=(0.4, 0.6), **kwargs):
     """Assign both synapse delay and location"""
     delay = syn_dist_delay_feng(source, target, **kwargs)
-    s_id, s_x = syn_section_PN(p=p, sec_id=sec_id, sec_x=sec_x)
+    s_id, s_x = syn_section_PN(source, target, p=p, sec_id=sec_id, sec_x=sec_x)
     return delay, s_id, s_x
 
 # The function below is not necessary if sec_id is specified in edge parameters

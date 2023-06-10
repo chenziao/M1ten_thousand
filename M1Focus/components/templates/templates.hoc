@@ -1,5 +1,5 @@
 {load_file("stdrun.hoc")}
-{load_file("nrngui.hoc")}
+// {load_file("nrngui.hoc")}
 
 /////////////////////// Pyramidal Cells //////////////////////////////
 // Created by FF (2016)
@@ -179,9 +179,6 @@ endtemplate CP_Cell
 ///// CS cell borrowed from Type C cell in LA  /////
 /////===================/////
 // Threshold ~ -56 mV  raise the input, rest ~-65 mV
-
-{load_file("stdrun.hoc")}
-{load_file("nrngui.hoc")}
 
 begintemplate CS_Cell
 	public soma, dend, apic, connect2target, type, insert_mechs

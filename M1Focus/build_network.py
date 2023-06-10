@@ -20,7 +20,7 @@ rng = np.random.default_rng(randseed)
 connectors.rng = rng
 
 network_dir = 'network'
-t_sim = 12000.0  # ms
+t_sim = 16000.0  # ms
 dt = 0.05  # ms
 
 # Network size and dimensions
@@ -35,7 +35,7 @@ z_5A = 0.
 min_conn_dist = 20.0  # um. PN soma diameter
 max_conn_dist = 300.0  # or np.inf
 # Distance range for total probability in estimation of Gaussian drop function
-ptotal_dist_range = (0., 150.)
+# ptotal_dist_range = (0., 150.)
 
 # When enabled, a shell of virtual cells will be created around the core cells.
 edge_effects = True
