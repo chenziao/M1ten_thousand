@@ -269,7 +269,7 @@ def build_edges(networks, edge_definitions, edge_params,
         print("Adding edge: " + edge['param'])
         edge_params_val = edge_params[edge['param']].copy()
         # get synapse template file
-        dynamics_file = edge_params_val.pop('dynamics_params')
+        dynamics_file = edge_params_val.get('dynamics_params')
         model_template = syn[dynamics_file]['level_of_detail']
         # get source and target nodes
         edge_src_trg = edge.get('edge')
@@ -771,7 +771,7 @@ edge_params = {
             'p_arg': cylindrical_dist_z,
             },
         'syn_weight': 1,
-        'dynamics_params': 'CP2CS.json'  # same as 'CS2CS.json'
+        'dynamics_params': 'CP2CS.json'
     },
     'CS2CP': {
         'connector_class': UnidirectionConnector,
@@ -783,7 +783,7 @@ edge_params = {
             'p_arg': cylindrical_dist_z,
             },
         'syn_weight': 1,
-        'dynamics_params': 'CS2CS.json'
+        'dynamics_params': 'CS2CP.json'
     },
     'FSI2FSI': {
         'connector_class': ReciprocalConnector,
@@ -815,7 +815,7 @@ edge_params = {
         'syn_weight': 1,
         'afferent_section_id': 0,  # soma
         'afferent_section_pos': 0.5,
-        'dynamics_params': 'INT2INT.json'
+        'dynamics_params': 'LTS2LTS.json'
     },
     'FSI2LTS': {
         'connector_class': ReciprocalConnector,
@@ -927,7 +927,7 @@ edge_params = {
         'syn_weight': 1,
         'afferent_section_id': 1,  # dend
         'afferent_section_pos': 0.5,
-        'dynamics_params': 'PN2LTS.json'
+        'dynamics_params': 'CP2LTS.json'
     },
     'LTS2CP': {
         'connector_class': get_connector,
@@ -935,7 +935,7 @@ edge_params = {
         'syn_weight': 1,
         'afferent_section_id': 2,
         'afferent_section_pos': 0.8,  # end of apic
-        'dynamics_params': 'LTS2PN.json'
+        'dynamics_params': 'LTS2CP.json'
     },
     'CS2LTS': {
         'connector_class': ReciprocalConnector,
@@ -957,7 +957,7 @@ edge_params = {
         'syn_weight': 1,
         'afferent_section_id': 1,  # dend
         'afferent_section_pos': 0.5,
-        'dynamics_params': 'PN2LTS.json'
+        'dynamics_params': 'CS2LTS.json'
     },
     'LTS2CS': {
         'connector_class': get_connector,
@@ -965,7 +965,7 @@ edge_params = {
         'syn_weight': 1,
         'afferent_section_id': 2,
         'afferent_section_pos': 0.8,  # end of apic
-        'dynamics_params': 'LTS2PN.json'
+        'dynamics_params': 'LTS2CS.json'
     },
     'Thal2CP': {
         'connector_class': OneToOneSequentialConnector,
@@ -1008,7 +1008,7 @@ edge_add_properties = {
     'syn_dist_delay_feng_section_PN': {
         'names': ['delay', 'afferent_section_id', 'afferent_section_pos'],
         'rule': syn_dist_delay_feng_section_PN,
-        'rule_params': {'p': 0.9, 'sec_id': (1, 2), 'sec_x': (0.4, 0.6)},
+        'rule_params': {'p': 0.9, 'sec_id': (1, 2), 'sec_x': (0.4, 0.6), 'min_delay': 1.4},
         'dtypes': [float, np.int32, float]
     },
     'syn_section_PN': {
@@ -1029,7 +1029,7 @@ edge_add_properties = {
 # See synapses.py - loads each json's in components/synaptic_models into a
 # dictionary so the properties can be referenced in the files,
 # e.g., syn['file.json'].get('property')
-synapses.load()
+synapses.load(rng_obj=rng)
 syn = synapses.syn_params_dicts()
 
 # Build your edges into the networks
@@ -1098,11 +1098,10 @@ if edge_effects:
                 connector_params['verbose'] = connector.verbose
                 edge_params_val['connector_params'] = connector_params
         shell_edge_params[shell_edge['param']] = edge_params_val
-        # Set delay to 0
-        edge_params_val['delay'] = 0.0
-        add_properties = shell_edge.pop('add_properties')
-        if add_properties == 'syn_dist_delay_feng_section_PN':
-            shell_edge['add_properties'] = 'syn_section_PN'
+        # edge_params_val['delay'] = 0.0 # Set delay to 0
+        # add_properties = shell_edge.pop('add_properties')
+        # if add_properties == 'syn_dist_delay_feng_section_PN':
+            # shell_edge['add_properties'] = 'syn_section_PN'
 
     # Check parameters
     print("\nShell edges:")
@@ -1140,9 +1139,9 @@ gap_junc_FSI = CorrelatedGapJunction(
 )
 gap_junc_FSI.setup_nodes(source=population, target=population)
 
-resistance = 1500
+g_gap = 0.0005 # microsiemens
 conn = net.add_edges(
-    is_gap_junction=True, syn_weight=resistance, target_sections=None,
+    is_gap_junction=True, syn_weight=g_gap, target_sections=None,
     afferent_section_id=0, afferent_section_pos=0.5,
     **gap_junc_FSI.edge_params()
 )
@@ -1164,9 +1163,9 @@ gap_junc_LTS = CorrelatedGapJunction(
 )
 gap_junc_LTS.setup_nodes(source=population, target=population)
 
-resistance = 1500
+g_gap = 0.0005 # microsiemens
 conn = net.add_edges(
-    is_gap_junction=True, syn_weight=resistance, target_sections=None,
+    is_gap_junction=True, syn_weight=g_gap, target_sections=None,
     afferent_section_id=0, afferent_section_pos=0.5,
     **gap_junc_LTS.edge_params()
 )

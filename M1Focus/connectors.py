@@ -1313,12 +1313,12 @@ class OneToOneSequentialConnector(AbstractConnector):
 ##############################################################################
 ######################### ADDTIONAL EDGE PROPERTIES ##########################
 
-SYN_MIN_DELAY = 0.8  # ms
+SYN_MIN_DELAY = 1.0  # ms
 SYN_VELOCITY = 1000.  # um/ms
 
 def syn_dist_delay_feng(source, target,
                         min_delay=SYN_MIN_DELAY, velocity=SYN_VELOCITY,
-                        fluc_stdev=0.05, connector=None):
+                        fluc_stdev=0.2, connector=None):
     """Synpase delay linearly dependent on distance.
     min_delay: minimum delay (ms)
     velocity: synapse conduction velocity (micron/ms)

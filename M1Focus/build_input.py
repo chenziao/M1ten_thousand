@@ -136,9 +136,9 @@ def build_input(t_stop=T_SIM, n_assemblies=N_ASSEMBLIES):
         writer.writerows(Thal_assy)
         writer.writerows(PN_assy)
 
-    firing_rate = 50.  # Hz. Poisson mean firing rate for burst input
-    thal_baseline_fr = 0.0  # Hz. Firing rate for thalamus baseline input
-    int_baseline_fr = 0.0  # Hz. Firing rate for interneuron baseline input
+    burst_firing_rate = 50.  # Hz. Poisson mean firing rate for burst input
+    thal_baseline_fr = 20.0  # Hz. Firing rate for thalamus baseline input
+    int_baseline_fr = 20.0  # Hz. Firing rate for interneuron baseline input
     t_start = 1.0  # sec. Time to start burst input
     on_time = 0.5  # sec. Burst input duration
     off_time = 1.0  # sec. Silence duration

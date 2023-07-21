@@ -5,6 +5,7 @@ NEURON {
 	USEION na READ ena WRITE ina
 	RANGE gnabar, ina, gnaer
 	RANGE minf, hinf, mtau, htau
+	RANGE mv_05, hv_05, mtau_inv, htau_inv
 }
 
 UNITS {
@@ -17,6 +18,10 @@ PARAMETER {
 	dt (ms)
 	gnabar = 0.035 (mho/cm2) <0,1e9>
 	ena = 45 (mV)
+	mv_05 = -18.5 (mV)
+	hv_05 = -29 (mV)
+	mtau_inv = 2.1 (/ms)
+	htau_inv = 0.045 (/ms)
 }
 
 STATE {
@@ -52,19 +57,19 @@ DERIVATIVE states {
 UNITSOFF
 
 FUNCTION malf(v(mV)) {
-	malf = 2.1*exp((v+18.5)/11.75)   :malf = 2.1*exp((v+18.5)/11.57)
+	malf = mtau_inv*exp((v-mv_05)/11.75)   :malf = 2.1*exp((v+18.5)/11.57)
 }
 
 FUNCTION mbet(v(mV)) {
-	mbet = 2.1*exp(-(v+18.5)/27)
+	mbet = mtau_inv*exp(-(v-mv_05)/27)
 }	
 
 FUNCTION half(v(mV)) {
-	half = 0.045*exp(-(v+29)/33)
+	half = htau_inv*exp(-(v-hv_05)/33)
 }
 
 FUNCTION hbet(v(mV)) {
-	hbet = 0.045*exp((v+29)/12.2)
+	hbet = htau_inv*exp((v-hv_05)/12.2)
 }
 
 PROCEDURE rate(v(mV)) { LOCAL msum, hsum, ma, mb, ha, hb

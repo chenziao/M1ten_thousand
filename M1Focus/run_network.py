@@ -61,8 +61,6 @@ def run(config_file):
 
     graph = bionet.BioNetwork.from_config(conf)
 
-    
-
 
     # This fixes the morphology error in LFP calculation
     pop = graph._node_populations['cortex']
@@ -71,20 +69,6 @@ def run(config_file):
 
     # sim = bionet.BioSimulator.from_config(conf, network=graph)
     sim = corebmtk.CoreBioSimulator.from_config(conf, network=graph, gpu=False)
-    
-    # This is my attempt to record the point conductance current only
-    #CP_nodes, CS_nodes, FSI_nodes, LTS_nodes=populations(config_file)
-    #pick_index = FSI_nodes [10]  # Picks the eleventh (zero index) cell arbitrarily in the list of FSI cell indices.
-    cells = graph.get_local_cells()
-    #if pick_index in list(cells.keys()):
-        #print(cells.get(pick_index))
-        #cell = cells.get(pick_index)
-
-        #soma = cell.hobj.soma[0](0.5) # Getting the soma out of the FSI cell
-        #print(dir(soma.na_ion))
-        #soma_i_exc = h.Vector()
-        #soma_i_inh = h.Vector()
-        #soma_i_exc.record(soma.noise_exc._ref_i_exc)
 
     # This calls insert_mechs() on each cell to use its gid as a seed
     # to the random number generator, so that each cell gets a different
@@ -93,11 +77,9 @@ def run(config_file):
     for cell in cells:
         cells[cell].hobj.insert_mechs(cells[cell].gid)
         pass
-    
+
     sim.run()
 
-    #i_exc=soma_i_exc.to_python()
-    #print(i_exc)
     bionet.nrn.quit_execution()
 
 
