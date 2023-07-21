@@ -9,7 +9,8 @@ from neuron import h
 rng = np.random.default_rng(0)
 
 TEST_NUM = 20
-TEST_COUNT = 0
+TEST_COUNT1 = 0
+TEST_COUNT2 = 0
 
 LOGN_PARAM_DICT = {}
 
@@ -38,6 +39,9 @@ def gen_logn_weight(initW, stdevW, sigma_lower=None, sigma_upper=None):
         weight = max(weight, bounds[0])
     if bounds[1] is not None:
         weight = min(weight, bounds[1])
+    if TEST_COUNT1 < TEST_NUM:
+        print(f'Synapse weight: {weight: .4g}')
+        TEST_COUNT1 += 1
     return weight
 
 
@@ -51,10 +55,9 @@ def set_syn_weight(syn, syn_params):
                 sigma_upper=syn_params.get('sigma_upper_bound'))
         else:
             syn.initW = initW
-        if TEST_COUNT < TEST_NUM:
+        if TEST_COUNT2 < TEST_NUM:
             print(f'Synapse initW: {initW: .4g}')
-            TEST_COUNT += 1
-
+            TEST_COUNT2 += 1
 
 AMPA_NMDA_STP_params = ('tau_r_AMPA', 'tau_d_AMPA', 'Use', 'Dep', 'Fac')
 

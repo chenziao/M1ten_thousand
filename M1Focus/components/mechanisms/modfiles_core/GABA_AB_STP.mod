@@ -126,7 +126,6 @@ DERIVATIVE state{
 
 
 NET_RECEIVE (weight, weight_GABAA, weight_GABAB, R, Pr, u, tsyn (ms), nc_type){
-    LOCAL result
     weight_GABAA = weight
     weight_GABAB = weight * GABAB_ratio
 
@@ -171,7 +170,7 @@ NET_RECEIVE (weight, weight_GABAA, weight_GABAB, R, Pr, u, tsyn (ms), nc_type){
     record_Pr = Pr
 
     if( verboseLevel > 0 ) {
-        printf("Synapse %f at time %g: R = %g Pr = %g erand = %g\n", synapseID, t, R, Pr, result )
+        printf("Synapse %f at time %g: R = %g Pr = %g\n", synapseID, t, R, Pr )
     }
 
     tsyn = t

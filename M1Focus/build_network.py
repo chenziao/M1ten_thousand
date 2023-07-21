@@ -743,7 +743,9 @@ edge_params = {
             'estimate_rho': True,
             'dist_range_forward': (0., 100.)
             },
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'dynamics_params': 'CP2CP.json'
     },
     'CS2CS': {
@@ -758,7 +760,9 @@ edge_params = {
             'estimate_rho': True,
             'dist_range_forward': (0., 100.)
             },
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'dynamics_params': 'CS2CS.json'
     },
     'CP2CS': {
@@ -770,7 +774,9 @@ edge_params = {
                 dist_type='cylindrical'),
             'p_arg': cylindrical_dist_z,
             },
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'dynamics_params': 'CP2CS.json'
     },
     'CS2CP': {
@@ -782,7 +788,9 @@ edge_params = {
                 dist_type='cylindrical'),
             'p_arg': cylindrical_dist_z,
             },
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'dynamics_params': 'CS2CP.json'
     },
     'FSI2FSI': {
@@ -798,7 +806,9 @@ edge_params = {
             'dist_range_forward': (min_conn_dist, 100.)
             # 'rho': pr_2_rho(0.103, 0.103, 0.04)  # use fixed rho instead
             },
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'afferent_section_id': 0,  # soma
         'afferent_section_pos': 0.5,
         'dynamics_params': 'FSI2FSI.json'
@@ -812,7 +822,9 @@ edge_params = {
                 dist_type='spherical'),
             'p_arg': spherical_dist
             },
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'afferent_section_id': 0,  # soma
         'afferent_section_pos': 0.5,
         'dynamics_params': 'LTS2LTS.json'
@@ -834,7 +846,9 @@ edge_params = {
             'estimate_rho': True,
             'dist_range_forward': (min_conn_dist, 50.)
             },
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'afferent_section_id': 0,  # soma
         'afferent_section_pos': 0.5,
         'dynamics_params': 'FSI2LTS.json'
@@ -842,7 +856,9 @@ edge_params = {
     'LTS2FSI': {
         'connector_class': get_connector,
         'connector_params': {'param': 'FSI2LTS'},
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'afferent_section_id': 0,  # soma
         'afferent_section_pos': 0.5,
         'dynamics_params': 'LTS2FSI.json'
@@ -864,7 +880,9 @@ edge_params = {
             'estimate_rho': True,
             'dist_range_backward': (min_conn_dist, 100.)
             },
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'afferent_section_id': 1,  # dend
         'afferent_section_pos': 0.5,
         'dynamics_params': 'CP2FSI.json'
@@ -872,7 +890,9 @@ edge_params = {
     'FSI2CP': {
         'connector_class': get_connector,
         'connector_params': {'param': 'CP2FSI'},
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'afferent_section_id': 0,  # soma
         'afferent_section_pos': 0.5,
         'dynamics_params': 'FSI2CP.json'
@@ -894,7 +914,9 @@ edge_params = {
             'estimate_rho': True,
             'dist_range_backward': (min_conn_dist, 100.)
             },
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'afferent_section_id': 1,  # dend
         'afferent_section_pos': 0.5,
         'dynamics_params': 'CS2FSI.json'
@@ -902,7 +924,9 @@ edge_params = {
     'FSI2CS': {
         'connector_class': get_connector,
         'connector_params': {'param': 'CS2FSI'},
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'afferent_section_id': 0,  # soma
         'afferent_section_pos': 0.5,
         'dynamics_params': 'FSI2CS.json'
@@ -924,7 +948,9 @@ edge_params = {
             'estimate_rho': True,
             'dist_range_backward': (min_conn_dist, 100.)
             },
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'afferent_section_id': 1,  # dend
         'afferent_section_pos': 0.5,
         'dynamics_params': 'CP2LTS.json'
@@ -932,7 +958,9 @@ edge_params = {
     'LTS2CP': {
         'connector_class': get_connector,
         'connector_params': {'param': 'CP2LTS'},
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'afferent_section_id': 2,
         'afferent_section_pos': 0.8,  # end of apic
         'dynamics_params': 'LTS2CP.json'
@@ -954,7 +982,9 @@ edge_params = {
             'estimate_rho': True,
             'dist_range_backward': (min_conn_dist, 100.)
             },
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'afferent_section_id': 1,  # dend
         'afferent_section_pos': 0.5,
         'dynamics_params': 'CS2LTS.json'
@@ -962,14 +992,18 @@ edge_params = {
     'LTS2CS': {
         'connector_class': get_connector,
         'connector_params': {'param': 'CS2LTS'},
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'afferent_section_id': 2,
         'afferent_section_pos': 0.8,  # end of apic
         'dynamics_params': 'LTS2CS.json'
     },
     'Thal2CP': {
         'connector_class': OneToOneSequentialConnector,
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 2,
         'afferent_section_pos': 0.8,  # end of apic
@@ -978,7 +1012,9 @@ edge_params = {
     'Thal2CS': {
         'connector_class': get_connector,
         'connector_params': {'param': 'Thal2CP'},
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 2,
         'afferent_section_pos': 0.8,  # end of apic
@@ -986,7 +1022,9 @@ edge_params = {
     },
     'Intbase2FSI': {
         'connector_class': OneToOneSequentialConnector,
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 1,  # dend
         'afferent_section_pos': 0.5,
@@ -995,7 +1033,9 @@ edge_params = {
     'Intbase2LTS': {
         'connector_class': get_connector,
         'connector_params': {'param': 'Intbase2FSI'},
-        'syn_weight': 1,
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 1,  # dend
         'afferent_section_pos': 0.5,
