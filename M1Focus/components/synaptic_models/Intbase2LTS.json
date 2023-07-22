@@ -3,7 +3,7 @@
     "initW": 0.1,
     "tau_r_AMPA": 0.4,
     "tau_d_AMPA": 4.0,
-    "Use": 1.,
-    "Dep": 0.,
-    "Fac": 0.
+    "Use": 1.0,
+    "Dep": 0.0,
+    "Fac": 0.0
 }

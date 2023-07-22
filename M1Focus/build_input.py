@@ -81,41 +81,82 @@ def get_stim_cycle(on_time=1.0, off_time=0.5, t_start=0., t_stop=T_SIM):
     return t_cycle, n_cycle
 
 
-def get_psg_short(Thal_assy, firing_rate=0., on_time=1.0, off_time=0.5,
+def get_psg_short(Thal_assy, firing_rate=(0., 0.), on_time=1.0, off_time=0.5,
                   t_start=0., t_stop=T_SIM):
     """Poisson input is first on for on_time starting at t_start, then off for
     off_time. This repeats until the last on-time can complete before t_stop.
     Short burst is delivered to each assembly sequentially within each cycle.
+    Thal_assy: list of node ids in each assembly
+    firing_rate: 2-tuple of firing rate at on and off time, respectively
+    on_time, off_time: on / off time durations
+    t_start, t_stop: start and stop time of the stimulus cycles
     """
     t_cycle, n_cycle = get_stim_cycle(on_time, off_time, t_start, t_stop)
     n_assemblies = len(Thal_assy)  # number of assemblies
-    t_on = on_time / n_assemblies  # on time for each assembly
-
     psg = PoissonSpikeGenerator(population='thalamus')
-    times = np.array([t_start, t_start + t_on])  # window for each assembly
-    for i in range(n_cycle):
-        for assy in Thal_assy:
-            psg.add(node_ids=assy, firing_rate=firing_rate, times=times)
-            times += t_on
-        times += off_time
+
+    firing_rate = np.asarray(firing_rate) 
+    if np.isscalar(firing_rate):
+        firing_rate = np.array((firing_rate, 0.))
+    else:
+        firing_rate = firing_rate[:2]
+    if firing_rate.max() <= 0:
+        return psg
+
+    times = np.empty((n_assemblies, n_cycle * 4 + 2))
+    times[:, 0] = 0.
+    times[:, -1] = t_stop
+    for j in range(n_cycle):
+        t_cyc = t_start + t_cycle * j
+        window = np.linspace(t_cyc, t_cyc + on_time, n_assemblies + 1)
+        for i in range(n_assemblies):
+            times[i, j * 4 + 1:j * 4 + 5] = np.repeat(window[i:i + 2], 2)
+    frs = np.insert(np.tile(firing_rate, n_cycle), 0, firing_rate[1])
+    frs = np.repeat(frs, 2)
+
+    for i in range(n_assemblies):
+        psg.add(node_ids=Thal_assy[i], firing_rate=frs, times=times[i])
     return psg
 
 
-def get_psg_long(Thal_assy, firing_rate=0., on_time=1.0, off_time=0.5,
+def get_psg_long(Thal_assy, firing_rate=(0., 0.), on_time=1.0, off_time=0.5,
                  t_start=0., t_stop=T_SIM):
     """Poisson input is first on for on_time starting at t_start, then off for
     off_time. This repeats until the last on-time can complete before t_stop.
     Long burst is delivered to one assembly in each cycle.
+    Thal_assy: list of node ids in each assembly
+    firing_rate: 2-tuple of firing rate at on and off time, respectively
+    on_time, off_time: on / off time durations
+    t_start, t_stop: start and stop time of the stimulus cycles
     """
     t_cycle, n_cycle = get_stim_cycle(on_time, off_time, t_start, t_stop)
     n_assemblies = len(Thal_assy)  # number of assemblies
-
     psg = PoissonSpikeGenerator(population='thalamus')
-    times = np.array([t_start, t_start + on_time])  # window for each assembly
-    for i in range(n_cycle):
-        assy = Thal_assy[i % n_assemblies]
-        psg.add(node_ids=assy, firing_rate=firing_rate, times=times)
-        times += t_cycle
+
+    firing_rate = np.asarray(firing_rate) 
+    if np.isscalar(firing_rate):
+        firing_rate = np.array((firing_rate, 0.))
+    else:
+        firing_rate = firing_rate[:2]
+    if firing_rate.max() <= 0:
+        return psg
+
+    times = [[0] for _ in range(n_assemblies)]
+    for j in range(n_cycle):
+        t_cycle_start = t_start + t_cycle * j
+        window = np.array((t_cycle_start, t_cycle_start + on_time))
+        i = j % n_assemblies
+        times[i].extend(np.repeat(window, 2))
+
+    frs = []
+    for i in range(n_assemblies):
+        ts = times[i]
+        ts.append(t_stop)
+        n = (len(ts) - 2) // 4
+        if len(frs) != len(ts):
+            frs = np.insert(np.tile(firing_rate, n), 0, firing_rate[1])
+            frs = np.repeat(frs, 2)
+        psg.add(node_ids=Thal_assy[i], firing_rate=frs, times=ts)
     return psg
 
 
@@ -136,13 +177,15 @@ def build_input(t_stop=T_SIM, n_assemblies=N_ASSEMBLIES):
         writer.writerows(Thal_assy)
         writer.writerows(PN_assy)
 
-    burst_firing_rate = 50.  # Hz. Poisson mean firing rate for burst input
+    burst_fr = 50.  # Hz. Poisson mean firing rate for burst input
     thal_baseline_fr = 20.0  # Hz. Firing rate for thalamus baseline input
     int_baseline_fr = 20.0  # Hz. Firing rate for interneuron baseline input
     t_start = 1.0  # sec. Time to start burst input
     on_time = 0.5  # sec. Burst input duration
     off_time = 1.0  # sec. Silence duration
     sim_time = (0, t_stop)  # Whole simulation
+
+    firing_rate = (thal_baseline_fr + burst_fr, thal_baseline_fr)
 
     # Short burst input for 1000 ms followed by 500 ms silence
     psg = get_psg_short(Thal_assy, firing_rate, on_time, off_time,
