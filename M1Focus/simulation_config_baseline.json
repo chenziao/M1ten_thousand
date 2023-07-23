@@ -6,7 +6,7 @@
     "target_simulator": "NEURON",
     "run": {
       "tstart": 0.0,
-      "tstop": 16000.0,
+      "tstop": 11000.0,
       "dt": 0.05,
       "dL": 2000000.0,
       "spike_threshold": -15.0,

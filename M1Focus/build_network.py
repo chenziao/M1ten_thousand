@@ -24,7 +24,7 @@ t_sim = 16000.0  # ms
 dt = 0.05  # ms
 
 # Network size and dimensions
-num_cells = 10000  # 10000
+num_cells = 200  # 10000
 column_width, column_height = 600., 500.
 x_start, x_end = - column_width / 2, column_width / 2
 y_start, y_end = - column_width / 2, column_width / 2
@@ -81,7 +81,7 @@ num_cells_5B = numCP_5B + numCS_5B + numFSI_5B + numLTS_5B
 
 # Generate random cell positions
 # Use poisson-disc sampling to generate positions with minimum distance limit.
-use_poiss_disc = True
+use_poiss_disc = False
 
 # Get positions for cells in the core
 def samples_in_core(samples):
@@ -725,11 +725,15 @@ edge_definitions = [
     }
 ]
 
-# edge_params should contain additional parameters to be added to add_edges()
+# edge_params should contain additional parameters to be added to add_edges().
 # The following parameters for random synapse placement are not necessary in
 # edge_params if afferent_section_id and afferent_section_pos are specified.
-# distance_range: place synapse within distance range [dmin, dmax] from soma
-# target_sections: place synapse within the given sections in a list
+# distance_range: place synapse within distance range [dmin, dmax] from soma.
+# target_sections: place synapse within the given sections in a list.
+# afferent_section_id must be specified here even though it will be overwritten
+# by add_properties(), since there could be potential error due to the dtype
+# being forced to be converted to float if values are not specified in the
+# corresponding column in the edge csv file.
 edge_params = {
     'CP2CP': {
         'connector_class': ReciprocalConnector,
@@ -746,6 +750,8 @@ edge_params = {
         'syn_weight': 1.,
         'weight_sigma': 0.,
         'sigma_upper_bound': 3.,
+        'afferent_section_id': 1,
+        'afferent_section_pos': 0.4,
         'dynamics_params': 'CP2CP.json'
     },
     'CS2CS': {
@@ -763,6 +769,8 @@ edge_params = {
         'syn_weight': 1.,
         'weight_sigma': 0.,
         'sigma_upper_bound': 3.,
+        'afferent_section_id': 1,
+        'afferent_section_pos': 0.4,
         'dynamics_params': 'CS2CS.json'
     },
     'CP2CS': {
@@ -777,6 +785,8 @@ edge_params = {
         'syn_weight': 1.,
         'weight_sigma': 0.,
         'sigma_upper_bound': 3.,
+        'afferent_section_id': 1,
+        'afferent_section_pos': 0.4,
         'dynamics_params': 'CP2CS.json'
     },
     'CS2CP': {
@@ -791,6 +801,8 @@ edge_params = {
         'syn_weight': 1.,
         'weight_sigma': 0.,
         'sigma_upper_bound': 3.,
+        'afferent_section_id': 1,
+        'afferent_section_pos': 0.4,
         'dynamics_params': 'CS2CP.json'
     },
     'FSI2FSI': {
@@ -1049,13 +1061,13 @@ edge_add_properties = {
         'names': ['delay', 'afferent_section_id', 'afferent_section_pos'],
         'rule': syn_dist_delay_feng_section_PN,
         'rule_params': {'p': 0.9, 'sec_id': (1, 2), 'sec_x': (0.4, 0.6), 'min_delay': 1.4},
-        'dtypes': [float, np.int32, float]
+        'dtypes': [float, np.uint16, float]
     },
     'syn_section_PN': {
         'names': ['afferent_section_id', 'afferent_section_pos'],
         'rule': syn_section_PN,
         'rule_params': {'p': 0.9, 'sec_id': (1, 2), 'sec_x': (0.4, 0.6)},
-        'dtypes': [np.int32, float]
+        'dtypes': [np.uint16, float]
     },
     'syn_dist_delay_feng_default': {
         'names': 'delay',
@@ -1163,6 +1175,8 @@ if edge_effects:
 
 ##########################################################################
 ############################ GAP JUNCTIONS ###############################
+"""
+# Currently not working due to some errors in BMTK
 # FSI
 net = networks['cortex']
 population = net.nodes(pop_name='FSI')
@@ -1209,7 +1223,7 @@ conn = net.add_edges(
     afferent_section_id=0, afferent_section_pos=0.5,
     **gap_junc_LTS.edge_params()
 )
-
+"""
 
 ##########################################################################
 ###############################  BUILD  ##################################

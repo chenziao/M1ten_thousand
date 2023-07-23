@@ -33,6 +33,7 @@ def get_logn_params(m, s, sigma_lower, sigma_upper):
 
 
 def gen_logn_weight(initW, stdevW, sigma_lower=None, sigma_upper=None):
+    global TEST_COUNT1
     mu, sigma, bounds = get_logn_params(initW, stdevW, sigma_lower, sigma_upper)
     weight = rng.lognormal(mu, sigma)
     if bounds[0] is not None:
@@ -46,15 +47,15 @@ def gen_logn_weight(initW, stdevW, sigma_lower=None, sigma_upper=None):
 
 
 def set_syn_weight(syn, syn_params):
+    global TEST_COUNT2
     initW = syn_params.get('initW')
     stdevW = syn_params.get('stdevW')
     if initW is not None:
         if stdevW:
-            syn.initW = gen_logn_weight(initW, stdevW,
+            initW = gen_logn_weight(initW, stdevW,
                 sigma_lower=syn_params.get('sigma_lower_bound'),
                 sigma_upper=syn_params.get('sigma_upper_bound'))
-        else:
-            syn.initW = initW
+        syn.initW = initW
         if TEST_COUNT2 < TEST_NUM:
             print(f'Synapse initW: {initW: .4g}')
             TEST_COUNT2 += 1
@@ -115,7 +116,7 @@ def gaba_ab_stp(syn_params, xs, secs):
     return [GABA_AB_STP(syn_params, x, sec) for x, sec in zip(xs, secs)]
 
 
-def load(randseed=0, rng_obj=None):
+def load(randseed=1111, rng_obj=None):
     global rng
     if rng_obj is None:
         rng = np.random.default_rng(randseed)

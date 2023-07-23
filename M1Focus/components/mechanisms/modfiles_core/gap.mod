@@ -1,21 +1,19 @@
 NEURON {
-	POINT_PROCESS gap
-	NONSPECIFIC_CURRENT i
-	RANGE g, i
-	POINTER vgap
+  POINT_PROCESS Gap
+  ELECTRODE_CURRENT i
+  RANGE g, i, vgap
 }
 
 PARAMETER {
-	v (millivolt)
-	vgap (millivolt)
-	g = 1e-5 (uS)
+  g = 0.001 (uS)
 }
 
 ASSIGNED {
-	i (nanoamp)
+  v (millivolt)
+  vgap (millivolt)
+  i (nanoamp)
 }
 
 BREAKPOINT {
-	i = g*(v - vgap)
+  i = g * (vgap - v)
 }
-
