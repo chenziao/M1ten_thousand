@@ -24,7 +24,7 @@ t_sim = 16000.0  # ms
 dt = 0.05  # ms
 
 # Network size and dimensions
-num_cells = 200  # 10000
+num_cells = 10000  # 10000
 column_width, column_height = 600., 500.
 x_start, x_end = - column_width / 2, column_width / 2
 y_start, y_end = - column_width / 2, column_width / 2
@@ -81,7 +81,7 @@ num_cells_5B = numCP_5B + numCS_5B + numFSI_5B + numLTS_5B
 
 # Generate random cell positions
 # Use poisson-disc sampling to generate positions with minimum distance limit.
-use_poiss_disc = False
+use_poiss_disc = True
 
 # Get positions for cells in the core
 def samples_in_core(samples):
@@ -428,13 +428,13 @@ network_definitions = [
             }
         ]
     },
-    {   # Extrinsic Intbase Inputs
-        'network_name': 'Intbase',
+    {   # Extrinsic Baseline Inputs
+        'network_name': 'baseline',
         'positions_list': None,
         'cells': [
             {   # Virtual Cells
-                'N': num_FSI + num_LTS,
-                'pop_name': 'Int',
+                'N': num_cells,
+                'pop_name': 'base',
                 'potential': 'exc',
                 'model_type': 'virtual'
             }
@@ -704,24 +704,42 @@ edge_definitions = [
         },
         'param': 'Thal2CS'
     },
-        ################### Interneuron baseline INPUT ###################
+        ################### Baseline INPUT ###################
+    {   # Excitation to CP
+        'network': 'cortex',
+        'edge': {
+            'source_network': 'baseline',
+            'source': {},
+            'target': {'pop_name': ['CP']}
+        },
+        'param': 'Base2CP'
+    },
+    {   # Excitation to CS
+        'network': 'cortex',
+        'edge': {
+            'source_network': 'baseline',
+            'source': {},
+            'target': {'pop_name': ['CS']}
+        },
+        'param': 'Base2CS'
+    },
     {   # Excitation to FSI
         'network': 'cortex',
         'edge': {
-            'source_network': 'Intbase',
+            'source_network': 'baseline',
             'source': {},
             'target': {'pop_name': ['FSI']}
         },
-        'param': 'Intbase2FSI'
+        'param': 'Base2FSI'
     },
     {   # Excitation to LTS
         'network': 'cortex',
         'edge': {
-            'source_network': 'Intbase',
+            'source_network': 'baseline',
             'source': {},
             'target': {'pop_name': ['LTS']}
         },
-        'param': 'Intbase2LTS'
+        'param': 'Base2LTS'
     }
 ]
 
@@ -747,8 +765,9 @@ edge_params = {
             'estimate_rho': True,
             'dist_range_forward': (0., 100.)
             },
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.8,
         'sigma_upper_bound': 3.,
         'afferent_section_id': 1,
         'afferent_section_pos': 0.4,
@@ -766,8 +785,9 @@ edge_params = {
             'estimate_rho': True,
             'dist_range_forward': (0., 100.)
             },
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.8,
         'sigma_upper_bound': 3.,
         'afferent_section_id': 1,
         'afferent_section_pos': 0.4,
@@ -782,8 +802,9 @@ edge_params = {
                 dist_type='cylindrical'),
             'p_arg': cylindrical_dist_z,
             },
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.8,
         'sigma_upper_bound': 3.,
         'afferent_section_id': 1,
         'afferent_section_pos': 0.4,
@@ -798,8 +819,9 @@ edge_params = {
                 dist_type='cylindrical'),
             'p_arg': cylindrical_dist_z,
             },
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.8,
         'sigma_upper_bound': 3.,
         'afferent_section_id': 1,
         'afferent_section_pos': 0.4,
@@ -818,8 +840,9 @@ edge_params = {
             'dist_range_forward': (min_conn_dist, 100.)
             # 'rho': pr_2_rho(0.103, 0.103, 0.04)  # use fixed rho instead
             },
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.8,
         'sigma_upper_bound': 3.,
         'afferent_section_id': 0,  # soma
         'afferent_section_pos': 0.5,
@@ -834,8 +857,9 @@ edge_params = {
                 dist_type='spherical'),
             'p_arg': spherical_dist
             },
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.8,
         'sigma_upper_bound': 3.,
         'afferent_section_id': 0,  # soma
         'afferent_section_pos': 0.5,
@@ -858,8 +882,9 @@ edge_params = {
             'estimate_rho': True,
             'dist_range_forward': (min_conn_dist, 50.)
             },
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.8,
         'sigma_upper_bound': 3.,
         'afferent_section_id': 0,  # soma
         'afferent_section_pos': 0.5,
@@ -868,8 +893,9 @@ edge_params = {
     'LTS2FSI': {
         'connector_class': get_connector,
         'connector_params': {'param': 'FSI2LTS'},
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.8,
         'sigma_upper_bound': 3.,
         'afferent_section_id': 0,  # soma
         'afferent_section_pos': 0.5,
@@ -892,8 +918,9 @@ edge_params = {
             'estimate_rho': True,
             'dist_range_backward': (min_conn_dist, 100.)
             },
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.8,
         'sigma_upper_bound': 3.,
         'afferent_section_id': 1,  # dend
         'afferent_section_pos': 0.5,
@@ -902,8 +929,9 @@ edge_params = {
     'FSI2CP': {
         'connector_class': get_connector,
         'connector_params': {'param': 'CP2FSI'},
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.8,
         'sigma_upper_bound': 3.,
         'afferent_section_id': 0,  # soma
         'afferent_section_pos': 0.5,
@@ -926,8 +954,9 @@ edge_params = {
             'estimate_rho': True,
             'dist_range_backward': (min_conn_dist, 100.)
             },
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.8,
         'sigma_upper_bound': 3.,
         'afferent_section_id': 1,  # dend
         'afferent_section_pos': 0.5,
@@ -936,8 +965,9 @@ edge_params = {
     'FSI2CS': {
         'connector_class': get_connector,
         'connector_params': {'param': 'CS2FSI'},
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.8,
         'sigma_upper_bound': 3.,
         'afferent_section_id': 0,  # soma
         'afferent_section_pos': 0.5,
@@ -960,8 +990,9 @@ edge_params = {
             'estimate_rho': True,
             'dist_range_backward': (min_conn_dist, 100.)
             },
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.8,
         'sigma_upper_bound': 3.,
         'afferent_section_id': 1,  # dend
         'afferent_section_pos': 0.5,
@@ -970,8 +1001,9 @@ edge_params = {
     'LTS2CP': {
         'connector_class': get_connector,
         'connector_params': {'param': 'CP2LTS'},
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.8,
         'sigma_upper_bound': 3.,
         'afferent_section_id': 2,
         'afferent_section_pos': 0.8,  # end of apic
@@ -994,8 +1026,9 @@ edge_params = {
             'estimate_rho': True,
             'dist_range_backward': (min_conn_dist, 100.)
             },
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.8,
         'sigma_upper_bound': 3.,
         'afferent_section_id': 1,  # dend
         'afferent_section_pos': 0.5,
@@ -1004,8 +1037,9 @@ edge_params = {
     'LTS2CS': {
         'connector_class': get_connector,
         'connector_params': {'param': 'CS2LTS'},
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.8,
         'sigma_upper_bound': 3.,
         'afferent_section_id': 2,
         'afferent_section_pos': 0.8,  # end of apic
@@ -1013,6 +1047,7 @@ edge_params = {
     },
     'Thal2CP': {
         'connector_class': OneToOneSequentialConnector,
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
         'weight_sigma': 0.,
         'sigma_upper_bound': 3.,
@@ -1024,34 +1059,61 @@ edge_params = {
     'Thal2CS': {
         'connector_class': get_connector,
         'connector_params': {'param': 'Thal2CP'},
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
         'weight_sigma': 0.,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 2,
         'afferent_section_pos': 0.8,  # end of apic
-        'dynamics_params': 'Thal2CS.json'  # same as 'Thal2CP.json'
+        'dynamics_params': 'Thal2CS.json'
     },
-    'Intbase2FSI': {
+    'Base2CP': {
         'connector_class': OneToOneSequentialConnector,
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
         'weight_sigma': 0.,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
-        'afferent_section_id': 1,  # dend
-        'afferent_section_pos': 0.5,
-        'dynamics_params': 'Intbase2FSI.json'
+        'afferent_section_id': 2,
+        'afferent_section_pos': 0.8,  # end of apic
+        'dynamics_params': 'Thal2CP.json'
     },
-    'Intbase2LTS': {
+    'Base2CS': {
         'connector_class': get_connector,
-        'connector_params': {'param': 'Intbase2FSI'},
+        'connector_params': {'param': 'Base2CP'},
+        'weight_function': 'lognormal_weight',
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
+        'delay': 0.0,
+        'afferent_section_id': 2,
+        'afferent_section_pos': 0.8,  # end of apic
+        'dynamics_params': 'Thal2CS.json'
+    },
+    'Base2FSI': {
+        'connector_class': get_connector,
+        'connector_params': {'param': 'Base2CP'},
+        'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
         'weight_sigma': 0.,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 1,  # dend
         'afferent_section_pos': 0.5,
-        'dynamics_params': 'Intbase2LTS.json'
+        'dynamics_params': 'Base2FSI.json'
+    },
+    'Base2LTS': {
+        'connector_class': get_connector,
+        'connector_params': {'param': 'Base2CP'},
+        'weight_function': 'lognormal_weight',
+        'syn_weight': 1.,
+        'weight_sigma': 0.,
+        'sigma_upper_bound': 3.,
+        'delay': 0.0,
+        'afferent_section_id': 1,  # dend
+        'afferent_section_pos': 0.5,
+        'dynamics_params': 'Base2LTS.json'
     }
 }  # edges referenced by name
 
@@ -1245,7 +1307,7 @@ if False:
             ('thalamus', './input/thalamus_base.h5'),
             ('thalamus', './input/thalamus_short.h5'),
             ('thalamus', './input/thalamus_long.h5'),
-            ('Intbase', './input/Intbase.h5')
+            ('baseline', './input/baseline.h5')
         ],  # (Population for which spikes will be generated, file name)
         components_dir='components',
         config_file='config.json',

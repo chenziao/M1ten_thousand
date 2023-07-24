@@ -20,12 +20,12 @@
         "node_types_file": "$NETWORK_DIR/cortex_node_types.csv"
       },
       {
-        "nodes_file": "$NETWORK_DIR/thalamus_nodes.h5",
-        "node_types_file": "$NETWORK_DIR/thalamus_node_types.csv"
+        "nodes_file": "$NETWORK_DIR/baseline_nodes.h5",
+        "node_types_file": "$NETWORK_DIR/baseline_node_types.csv"
       },
       {
-        "nodes_file": "$NETWORK_DIR/Intbase_nodes.h5",
-        "node_types_file": "$NETWORK_DIR/Intbase_node_types.csv"
+        "nodes_file": "$NETWORK_DIR/thalamus_nodes.h5",
+        "node_types_file": "$NETWORK_DIR/thalamus_node_types.csv"
       },
       {
         "nodes_file": "$NETWORK_DIR/shell_nodes.h5",
@@ -34,16 +34,16 @@
     ],
     "edges": [
       {
-        "edge_types_file": "$NETWORK_DIR/thalamus_cortex_edge_types.csv",
-        "edges_file": "$NETWORK_DIR/thalamus_cortex_edges.h5"
-      },
-      {
-        "edge_types_file": "$NETWORK_DIR/Intbase_cortex_edge_types.csv",
-        "edges_file": "$NETWORK_DIR/Intbase_cortex_edges.h5"
-      },
-      {
         "edge_types_file": "$NETWORK_DIR/cortex_cortex_edge_types.csv",
         "edges_file": "$NETWORK_DIR/cortex_cortex_edges.h5"
+      },
+      {
+        "edge_types_file": "$NETWORK_DIR/baseline_cortex_edge_types.csv",
+        "edges_file": "$NETWORK_DIR/baseline_cortex_edges.h5"
+      },
+      {
+        "edge_types_file": "$NETWORK_DIR/thalamus_cortex_edge_types.csv",
+        "edges_file": "$NETWORK_DIR/thalamus_cortex_edges.h5"
       },
       {
         "edge_types_file": "$NETWORK_DIR/shell_cortex_edge_types.csv",

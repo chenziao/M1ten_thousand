@@ -20,8 +20,8 @@ echo "Started running at $START."
 
 export HDF5_USE_FILE_LOCKING=FALSE
 unset DISPLAY
-## mpirun nrniv -mpi MC_main_small_forBeta_shortburstensamble.hoc #srun
-mpirun ./components/mechanisms/x86_64/special -mpi -python run_network.py config.json #srun
+
+mpirun ./components/mechanisms/x86_64/special -mpi -python run_network.py 'config.json' True #srun
 
 END=$(date)
 echo "Done running simulation at $END"

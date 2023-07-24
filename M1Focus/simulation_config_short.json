@@ -1,6 +1,7 @@
 {
     "manifest": {
       "$BASE_DIR": "${configdir}",
+	  "$INPUT_DIR": "$BASE_DIR/input",
       "$OUTPUT_DIR": "$BASE_DIR/output"
     },
     "target_simulator": "NEURON",
@@ -17,29 +18,23 @@
       "v_init": -70.0
     },
     "inputs": {
-        "thalamus_base": {
+        "baseline_spikes": {
+            "input_type": "spikes",
+            "module": "sonata",
+            "input_file": "$INPUT_DIR/baseline.h5",
+            "node_set": "baseline"
+        },
+        "shell_spikes": {
+            "input_type": "spikes",
+            "module": "sonata",
+            "input_file": "$INPUT_DIR/shell.h5",
+            "node_set": "shell"
+        },
+        "thalamus_spikes": {
 			"input_type": "spikes",
 			"module": "sonata",
-			"input_file": "$BASE_DIR/input/thalamus_base.h5",
+			"input_file": "$INPUT_DIR/thalamus_short.h5",
 			"node_set": "thalamus"
-        },
-        "thalamus_short": {
-            "input_type": "spikes",
-            "module": "sonata",
-            "input_file": "$BASE_DIR/input/thalamus_short.h5",
-            "node_set": "thalamus"
-        },
-        "shell": {
-            "input_type": "spikes",
-            "module": "sonata",
-            "input_file": "$BASE_DIR/input/shell.h5",
-            "node_set": "thalamus"
-        },
-        "Intbase": {
-            "input_type": "spikes",
-            "module": "sonata",
-            "input_file": "$BASE_DIR/input/Intbase.h5",
-            "node_set": "Intbase"
         }
     },
     "output": {
@@ -52,9 +47,9 @@
         "cells": "all",
         "variable_name": "v",
         "module": "ecp",
-        "electrode_positions": "./components/recXelectrodes/linear_electrode.csv",
+        "electrode_positions": "$BASE_DIR/components/recXelectrodes/single_electrode.csv",
         "file_name": "ecp.h5",
-        "tmp_dir": "./ecp_tmp",
+        "tmp_dir": "$BASE_DIR/ecp_tmp",
         "electrode_channels": "all"
         }
     },

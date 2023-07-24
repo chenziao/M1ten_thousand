@@ -41,14 +41,14 @@ def psg_lognormal_fr(psg, node_ids, mean, stdev, times):
     return firing_rates
 
 
-def get_pop(node_df, pop_name):
-    """Get nodes with given pop_name from the nodes dataframe"""
-    return node_df.loc[node_df['pop_name'] == pop_name]
-
-
 def df2node_id(df):
     """Get node ids from a node dataframe into a list"""
     return df.index.tolist()
+
+
+def get_pop_id(node_df, pop_name):
+    """Get nodes with given pop_name from the nodes dataframe"""
+    return df2node_id(node_df.loc[node_df['pop_name'] == pop_name])
 
 
 def get_assembly(Thal_nodes, Cortex_nodes, n_assemblies):
@@ -64,8 +64,8 @@ def get_assembly(Thal_nodes, Cortex_nodes, n_assemblies):
     assemb_idx = rng.permutation(num_PN)  # random shuffle for assemblies
     assemb_idx = np.split(assemb_idx, split_idx)  # split into assemblies
 
-    Thal_ids = np.array(df2node_id(Thal_nodes))
-    PN_ids = np.array(df2node_id(CP_nodes) + df2node_id(CS_nodes))
+    Thal_ids = np.array(Thal_nodes)
+    PN_ids = np.array(CP_nodes + CS_nodes)
     Thal_assy = []
     PN_assy = []
     for idx in assemb_idx:
@@ -168,43 +168,52 @@ def build_input(t_stop=T_SIM, n_assemblies=N_ASSEMBLIES):
     # Get nodes in pandas dataframe
     nodes = util.load_nodes_from_config("config.json")
     pop_names = ['CP', 'CS', 'FSI', 'LTS']
-    Cortex_nodes = {p: get_pop(nodes['cortex'], p) for p in pop_names}
+    Cortex_nodes = {p: get_pop_id(nodes['cortex'], p) for p in pop_names}
 
-    Thal_nodes = nodes['thalamus']
+    # Determines node ids for baseline input
+    pop_size = [len(n) for n in Cortex_nodes.values()]
+    Base_nodes = np.split(df2node_id(nodes['baseline']), np.cumsum(pop_size))
+    Base_nodes = dict(zip(pop_names, [n.tolist() for n in Base_nodes[:-1]]))
+    baseline_id_file = os.path.join(INPUT_PATH, "Baseline_ids.csv")
+    # rows: baseline ids for each population, cortex ids for each population
+    with open(baseline_id_file, 'w', newline='') as f:
+        writer = csv.writer(f, delimiter=',')
+        writer.writerows(Base_nodes.values())
+        writer.writerows(Cortex_nodes.values())
+
+    # Assign assemblies for PNs
+    Thal_nodes = df2node_id(nodes['thalamus'])
     Thal_assy, PN_assy = get_assembly(Thal_nodes, Cortex_nodes, n_assemblies)
     assembly_id_file = os.path.join(INPUT_PATH, "Assembly_ids.csv")
+    # rows: thalamus ids for each assembly, cortex ids for each assembly
     with open(assembly_id_file, 'w', newline='') as f:
         writer = csv.writer(f, delimiter=',')
         writer.writerows(Thal_assy)
         writer.writerows(PN_assy)
 
     Thal_burst_fr = (50., 0.)  # Hz. Poisson mean firing rate for burst input
-    PN_baseline_fr = 20.0  # Hz. Firing rate for thalamus baseline input
-    ITN_baseline_fr = 20.0  # Hz. Firing rate for interneuron baseline input
+    PN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to PNs
+    ITN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to ITNs
     t_start = 1.0  # sec. Time to start burst input
     on_time = 0.5  # sec. Burst input duration
     off_time = 1.0  # sec. Silence duration
     sim_time = (0, t_stop)  # Whole simulation
 
-    # Thalamus baseline
-    psg = PoissonSpikeGenerator(population='thalamus', seed=psgseed)
-    psg.add(node_ids=df2node_id(Thal_nodes),
+    # Baseline input
+    psg = PoissonSpikeGenerator(population='baseline', seed=psgseed)
+    psg.add(node_ids=Base_nodes['CP'] + Base_nodes['CS'],
             firing_rate=PN_baseline_fr, times=sim_time)
-    psg.to_sonata(os.path.join(INPUT_PATH, "thalamus_base.h5"))
-
-    # Interneuron baseline
-    psg = PoissonSpikeGenerator(population='Intbase', seed=psgseed + 2)
-    psg.add(node_ids=df2node_id(nodes['Intbase']),
+    psg.add(node_ids=Base_nodes['FSI'] + Base_nodes['LTS'],
             firing_rate=ITN_baseline_fr, times=sim_time)
-    psg.to_sonata(os.path.join(INPUT_PATH, "Intbase.h5"))
+    psg.to_sonata(os.path.join(INPUT_PATH, "baseline.h5"))
 
-    # Short burst input for 1000 ms followed by 500 ms silence
+    # Short burst thalamus input
     psg = PoissonSpikeGenerator(population='thalamus', seed=psgseed + 1)
     psg = get_psg_short(psg, Thal_assy, Thal_burst_fr, on_time, off_time,
                         t_start=t_start, t_stop=t_stop)
     psg.to_sonata(os.path.join(INPUT_PATH, "thalamus_short.h5"))
 
-    # Long burst input for 1000 ms followed by 500 ms silence
+    # Long burst thalamus input
     psg = PoissonSpikeGenerator(population='thalamus', seed=psgseed + 1)
     psg = get_psg_long(psg, Thal_assy, Thal_burst_fr, on_time, off_time,
                        t_start=t_start, t_stop=t_stop)
@@ -215,10 +224,14 @@ def build_input(t_stop=T_SIM, n_assemblies=N_ASSEMBLIES):
     # These inputs are for the baseline firing rates of the cells in the shell.
     if 'shell' in nodes:
         start_timer = time.perf_counter()
-        shell_nodes = {p: get_pop(nodes['shell'], p) for p in pop_names}
-        PN_ids = df2node_id(shell_nodes['CP']) + df2node_id(shell_nodes['CS'])
-        FSI_ids = df2node_id(shell_nodes['FSI'])
-        LTS_ids = df2node_id(shell_nodes['LTS'])
+
+        # Generate Poisson spike trains for shell cells
+        psg = PoissonSpikeGenerator(population='shell', seed=psgseed + 10)
+        constant_fr = False
+
+        shell_fr = {'CP': (0.5, 0.2), 'CS': (0.5, 0.2),
+                    'FSI': (5., 3.), 'LTS': (1., 0.1)}
+        shell_nodes = {p: get_pop_id(nodes['shell'], p) for p in pop_names}
 
         # Select effective nodes in shell that only has connections to core
         edge_paths = util.load_config("config.json")['networks']['edges']
@@ -232,37 +245,30 @@ def build_input(t_stop=T_SIM, n_assemblies=N_ASSEMBLIES):
             ratio = len(effect_list) / len(cell_list)
             return effect_list, ratio
 
-        PN_ids, r_PN = effective_cell(PN_ids, effective_shell)
-        FSI_ids, r_FSI = effective_cell(FSI_ids, effective_shell)
-        LTS_ids, r_LTS = effective_cell(LTS_ids, effective_shell)
         print("Proportion of effective cells in shell.")
-        print("%.1f%% effective PN." % (100 * r_PN))
-        print("%.1f%% effective FSI." % (100 * r_FSI))
-        print("%.1f%% effective LTS." % (100 * r_LTS))
 
-        # Generate Poisson spike trains for shell cells
-        psg = PoissonSpikeGenerator(population='shell', seed=psgseed + 10)
-        constant_fr = False
-        if constant_fr:
-            # Constant mean firing rate for all cells
-            psg.add(node_ids=PN_ids, firing_rate=0.5, times=sim_time)
-            psg.add(node_ids=FSI_ids, firing_rate=5., times=sim_time)
-            psg.add(node_ids=LTS_ids, firing_rate=1., times=sim_time)
-        else:
-            # Lognormal distributed mean firing rate
-            fr = []
-            fr.append(psg_lognormal_fr(psg, PN_ids,
-                                       mean=0.5, stdev=0.2, times=sim_time))
-            fr.append(psg_lognormal_fr(psg, FSI_ids,
-                                       mean=5., stdev=3., times=sim_time))
-            fr.append(psg_lognormal_fr(psg, LTS_ids,
-                                       mean=1., stdev=0.1, times=sim_time))
+        fr_list = []
+        for p, node_ids in shell_nodes.items():
+            node_ids, ratio = effective_cell(node_ids, effective_shell)
+            print("%.1f%% effective %s." % (100 * ratio, p))
+
+            if constant_fr:
+                # Constant mean firing rate for all cells
+                fr = shell_fr[p][0]
+                psg.add(node_ids=node_ids, firing_rate=fr, times=sim_time)
+            else:
+                # Lognormal distributed mean firing rate
+                fr = psg_lognormal_fr(psg, node_ids, mean=shell_fr[p][0],
+                                      stdev=shell_fr[p][1], times=sim_time)
+                fr_list.append(fr)
+
+        if not constant_fr:
             fr_file = os.path.join(INPUT_PATH, "Lognormal_FR.csv")
             with open(fr_file, 'w', newline='') as f:
                 writer = csv.writer(f, delimiter=',')
-                writer.writerows(fr)
-        psg.to_sonata('./input/shell.h5')
+                writer.writerows(fr_list)
 
+        psg.to_sonata(os.path.join(INPUT_PATH, "shell.h5"))
         print("Shell cells: %.3f sec" % (time.perf_counter() - start_timer))
 
     print("Done!")
