@@ -11,9 +11,13 @@ randseed = 4321
 psgseed = 0
 rng = np.random.default_rng(randseed)
 
-T_SIM = 16.  # sec. Simulation time
-N_ASSEMBLIES = 10  # number of assemblies
 INPUT_PATH = "./input"
+
+N_ASSEMBLIES = 10  # number of assemblies
+t_stop = 21.  # sec. Simulation time
+t_start = 1.0  # sec. Time to start burst input
+on_time = 0.5  # sec. Burst input duration
+off_time = 0.5  # sec. Silence duration
 
 
 def num_prop(ratio, N):
@@ -46,9 +50,20 @@ def df2node_id(df):
     return df.index.tolist()
 
 
+def get_pop(node_df, pop_name):
+    """Get nodes with given population name from the nodes dataframe"""
+    return node_df.loc[node_df['pop_name'] == pop_name]
+
+
 def get_pop_id(node_df, pop_name):
-    """Get nodes with given pop_name from the nodes dataframe"""
-    return df2node_id(node_df.loc[node_df['pop_name'] == pop_name])
+    """Get node ids with given population name from the nodes dataframe"""
+    return df2node_id(get_pop(node_df, pop_name))
+
+
+def get_populations(node_df, pop_names, only_id=False):
+    """Get node dataframes of multiple populations from the nodes dataframe"""
+    func = get_pop_id if only_id else get_pop
+    return {p: func(node_df, p) for p in pop_names}
 
 
 def get_assembly(Thal_nodes, Cortex_nodes, n_assemblies):
@@ -75,7 +90,7 @@ def get_assembly(Thal_nodes, Cortex_nodes, n_assemblies):
     return Thal_assy, PN_assy
 
 
-def get_stim_cycle(on_time=1.0, off_time=0.5, t_start=0., t_stop=T_SIM):
+def get_stim_cycle(on_time=0.5, off_time=0.5, t_start=0., t_stop=t_stop):
     """Get burst input stimulus parameters, (duration, number) of cycles"""
     t_cycle = on_time + off_time
     n_cycle = int(np.floor((t_stop + off_time - t_start) / t_cycle))
@@ -83,7 +98,7 @@ def get_stim_cycle(on_time=1.0, off_time=0.5, t_start=0., t_stop=T_SIM):
 
 
 def get_psg_short(psg, Thal_assy, firing_rate=(0., 0.),
-                  on_time=1.0, off_time=0.5, t_start=0., t_stop=T_SIM):
+                  on_time=0.5, off_time=0.5, t_start=0., t_stop=t_stop):
     """Poisson input is first on for on_time starting at t_start, then off for
     off_time. This repeats until the last on-time can complete before t_stop.
     Short burst is delivered to each assembly sequentially within each cycle.
@@ -121,7 +136,7 @@ def get_psg_short(psg, Thal_assy, firing_rate=(0., 0.),
 
 
 def get_psg_long(psg, Thal_assy, firing_rate=(0., 0.),
-                 on_time=1.0, off_time=0.5, t_start=0., t_stop=T_SIM):
+                 on_time=0.5, off_time=0.5, t_start=0., t_stop=t_stop):
     """Poisson input is first on for on_time starting at t_start, then off for
     off_time. This repeats until the last on-time can complete before t_stop.
     Long burst is delivered to one assembly in each cycle.
@@ -161,14 +176,14 @@ def get_psg_long(psg, Thal_assy, firing_rate=(0., 0.),
     return psg
 
 
-def build_input(t_stop=T_SIM, n_assemblies=N_ASSEMBLIES):
+def build_input(t_stop=t_stop, n_assemblies=N_ASSEMBLIES):
     print("Building all input spike trains...")
     start_timer = time.perf_counter()
 
     # Get nodes in pandas dataframe
     nodes = util.load_nodes_from_config("config.json")
     pop_names = ['CP', 'CS', 'FSI', 'LTS']
-    Cortex_nodes = {p: get_pop_id(nodes['cortex'], p) for p in pop_names}
+    Cortex_nodes = get_populations(nodes['cortex'], pop_names, only_id=True)
 
     # Determines node ids for baseline input
     pop_size = [len(n) for n in Cortex_nodes.values()]
@@ -194,9 +209,6 @@ def build_input(t_stop=T_SIM, n_assemblies=N_ASSEMBLIES):
     Thal_burst_fr = (50., 0.)  # Hz. Poisson mean firing rate for burst input
     PN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to PNs
     ITN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to ITNs
-    t_start = 1.0  # sec. Time to start burst input
-    on_time = 0.5  # sec. Burst input duration
-    off_time = 1.0  # sec. Silence duration
     sim_time = (0, t_stop)  # Whole simulation
 
     # Baseline input
@@ -229,9 +241,9 @@ def build_input(t_stop=T_SIM, n_assemblies=N_ASSEMBLIES):
         psg = PoissonSpikeGenerator(population='shell', seed=psgseed + 10)
         constant_fr = False
 
-        shell_fr = {'CP': (0.5, 0.2), 'CS': (0.5, 0.2),
-                    'FSI': (5., 3.), 'LTS': (1., 0.1)}
-        shell_nodes = {p: get_pop_id(nodes['shell'], p) for p in pop_names}
+        shell_fr = {'CP': (0.9, 0.7), 'CS': (0.65, 0.56),
+                    'FSI': (3.73, 4.31), 'LTS': (3.73, 4.31)}
+        shell_nodes = get_populations(nodes['shell'], pop_names, only_id=True)
 
         # Select effective nodes in shell that only has connections to core
         edge_paths = util.load_config("config.json")['networks']['edges']

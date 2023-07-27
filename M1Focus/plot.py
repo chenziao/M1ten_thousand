@@ -1,261 +1,169 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import h5py
+import sys
+from bmtool.util import util
+from build_input import get_populations
+from bmtk.simulator import bionet
+
 from bmtk.analyzer.compartment import plot_traces
 from bmtk.analyzer.spike_trains import plot_raster
-from bmtk.analyzer.spike_trains import spike_statistics
 from bmtk.analyzer.spike_trains import plot_rates_boxplot
-from scipy.signal import hanning,welch,decimate
-import h5py
-import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd
-import sys
-import math
-from bmtool.util import util
-from os.path import exists
-from bmtk.analyzer.spike_trains import plot_raster
-import os, sys
 
 CONFIG = "config.json"
 
-def raster(spikes_df,node_set,skip_ms=0,ax=None):
-    spikes_df = spikes_df[spikes_df['timestamps']>skip_ms] 
-    for node in node_set:
-        cells = node['ids'] 
-        
-        cell_spikes = spikes_df[spikes_df['node_ids'].isin(cells)]
-        #print(cell_spikes)
-        ax.scatter(cell_spikes['timestamps'],cell_spikes['node_ids'],
-                   c='tab:'+node['color'],s=0.25, label=node['name'])
-    
-    handles,labels = ax.get_legend_handles_labels()
-    ax.set_title('M1 Cortex Raster')
-    ax.legend(reversed(handles), reversed(labels))
+
+def raster(pop_spike, pop_color, s=0.1, ax=None):
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+    for p, spike_df in reversed(pop_spike.items()):
+        ax.scatter(spike_df['timestamps'], spike_df['node_ids'],
+                   c='tab:' + pop_color[p], s=s, label=p)
+    ax.set_title('Spike Raster Plot')
+    ax.legend(loc='upper right')
+    ax.set_xlabel('Time (ms)')
+    ax.set_ylabel('Cell ID')
     ax.grid(True)
+    return ax
 
-def spike_frequency_histogram(spikes_df,node_set,ms,skip_ms=0,ax=None,n_bins=10):
-    print("Type : mean (std)")
-    for node in node_set:
-        cells = node['ids'] 
-        cell_spikes = spikes_df[spikes_df['node_ids'].isin(cells)]
 
-        #skip the first few ms
-        cell_spikes = cell_spikes[cell_spikes['timestamps']>skip_ms]
-        spike_counts = cell_spikes.node_ids.value_counts()
-        total_seconds = (ms-skip_ms)/1000
-        spike_counts_per_second = spike_counts / total_seconds
-
-        spikes_mean = spike_counts_per_second.mean()
-        spikes_std = spike_counts_per_second.std()
-        
-        label = "{} : {:.2f} ({:.2f})".format(node['name'],spikes_mean,spikes_std)
-        print(label)
-        c = "tab:" + node['color']
-        if ax:
-            ax.hist(spike_counts_per_second,n_bins,density=True,histtype='bar',label=label,color=c)
-            ax.set_title('M1 Cortex Rates')
-    if ax:
+def firing_rate_histogram(pop_fr, pop_color, bins=30, min_fr=None, logscale=False, stacked=True, ax=None):
+    if min_fr is not None:
+        pop_fr = {p: np.fmax(fr, min_fr) for p, fr in pop_fr.items()}
+    fr = np.concatenate(list(pop_fr.values()))
+    if logscale:
+        fr = fr[np.nonzero(fr)[0]]
+        bins = np.geomspace(fr.min(), fr.max(), bins + 1)
+    else:
+        bins = np.linspace(fr.min(), fr.max(), bins + 1)
+    pop_names = list(pop_fr.keys())
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+    if stacked:
+        ax.hist(pop_fr.values(), bins=bins, label=pop_names,
+                color=[pop_color[p] for p in pop_names], stacked=True)
+    else:
+        for p, fr in pop_fr.items():
+            ax.hist(fr, bins=bins, label=p, color=pop_color[p], alpha=0.5)
+    if logscale:
         ax.set_xscale('log')
-        ax.legend() 
+        plt.draw()
+        xt = ax.get_xticks()
+        xtl = [x.get_text() for x in ax.get_xticklabels()]
+        xt = np.append(xt, min_fr)
+        xtl.append('0')
+        ax.set_xticks(xt)
+        ax.set_xticklabels(xtl)
+    ax.set_xlim(bins[0], bins[-1])
+    ax.legend(loc='upper right')
+    ax.set_title('Firing Rate Histogram')
+    ax.set_xlabel('Frequency (Hz)')
+    ax.set_ylabel('Count')
+    return ax
 
-def populations(config):
-    nodes = util.load_nodes_from_config(config)
-    i=0
-    j=0
-    CP_nodes = []
-    CS_nodes = []
-    FSI_nodes = []
-    LTS_nodes = []
-    for j in nodes:
-        node=nodes[j]
-        num_cells=len(node['node_type_id'])
-        if node['model_type'][0]=='biophysical':
-            #print(node)
-            #print(node['node_id'])
-            num_cells=len(node['node_type_id'])
-            for i in range(num_cells-1):
-                if(node['pop_name'][i]=='CP'):
-                    CP_nodes.append(i)
-                if(node['pop_name'][i]=='CS'):
-                    CS_nodes.append(i)
-                if(node['pop_name'][i]=='FSI'):
-                    FSI_nodes.append(i)
-                if(node['pop_name'][i]=='LTS'):
-                    LTS_nodes.append(i)
-    return CP_nodes, CS_nodes, FSI_nodes, LTS_nodes 
 
-def core_populations(config):
-    x_core=[250,350]
-    y_core=[250,350]
-    z_core=[300,1500]
-    nodes = util.load_nodes_from_config(config)
-    i=0
-    j=0
-    CP_nodes = []
-    CS_nodes = []
-    FSI_nodes = []
-    LTS_nodes = []
-    for j in nodes:
-        node=nodes[j]
-        num_cells=len(node['node_type_id'])
-        if node['model_type'][0]=='biophysical':
-            #print(node)
-            #print(node['node_id'])
-            num_cells=len(node['node_type_id'])
-            core = False
-            for i in range(num_cells-1):
-                if node['pos_x'][i] > x_core[0] and node['pos_x'][i] < x_core[1] and node['pos_y'][i] > y_core[0] and node['pos_y'][i] < y_core[1] and node['pos_z'][i] > z_core[0] and node['pos_z'][i] < z_core[1]:
-                    core = True
-                if(node['pop_name'][i]=='CP'):
-                    if core == True:
-                        CP_nodes.append(i)
-                if(node['pop_name'][i]=='CS'):
-                    if core == True:
-                        CS_nodes.append(i)
-                if(node['pop_name'][i]=='FSI'):
-                    if core == True:
-                        FSI_nodes.append(i)
-                if(node['pop_name'][i]=='LTS'):
-                    if core == True:
-                        LTS_nodes.append(i)
+def firing_rate(spikes_df, num_cells=None, time_windows=(0.,), frequency=True):
+    """
+    Count number of spikes for each cell.
+    spikes_df: dataframe of node id and spike times (ms)
+    num_cells: number of cells (that determines maximum node id)
+    time_windows: list of time windows for counting spikes (second)
+    frequency: whether return firing frequency in Hz or just number of spikes
+    """
+    if not spikes_df['timestamps'].is_monotonic:
+        spikes_df = spikes_df.sort_values(by='timestamps')
+    if num_cells is None:
+        num_cells = spikes_df['node_ids'].max() + 1
+    time_windows = 1000. * np.asarray(time_windows).ravel()
+    if time_windows.size % 2:
+        time_windows = np.append(time_windows, spikes_df['timestamps'].max())
+    nspk = np.zeros(num_cells, dtype=int)
+    n, N = 0, time_windows.size
+    count = False
+    for t, i in zip(spikes_df['timestamps'], spikes_df['node_ids']):
+        while n < N and t > time_windows[n]:
+            n += 1
+            count = not count
+        if count:
+            nspk[i] = nspk[i] + 1
+    if frequency:
+        nspk = nspk / (total_duration(time_windows) / 1000)
+    return nspk
 
-    return CP_nodes, CS_nodes, FSI_nodes, LTS_nodes 
 
-def intermediate_populations(config):
-    x_core=[250,350]
-    y_core=[250,350]
-    z_core=[300,1500]
-    nodes = util.load_nodes_from_config(config)
-    i=0
-    j=0
-    CP_nodes = []
-    CS_nodes = []
-    FSI_nodes = []
-    LTS_nodes = []
-    for j in nodes:
-        node=nodes[j]
-        num_cells=len(node['node_type_id'])
-        if node['model_type'][0]=='biophysical':
-            #print(node)
-            #print(node['node_id'])
-            num_cells=len(node['node_type_id'])
-            core = False
-            for i in range(num_cells-1):
-                if node['pos_x'][i] > x_core[0] and node['pos_x'][i] < x_core[1] and node['pos_y'][i] > y_core[0] and node['pos_y'][i] < y_core[1] and node['pos_z'][i] > z_core[0] and node['pos_z'][i] < z_core[1]:
-                    core = False
-                if(node['pop_name'][i]=='CP'):
-                    if core == False:
-                        CP_nodes.append(i)
-                if(node['pop_name'][i]=='CS'):
-                    if core == False:
-                        CS_nodes.append(i)
-                if(node['pop_name'][i]=='FSI'):
-                    if core == False:
-                        FSI_nodes.append(i)
-                if(node['pop_name'][i]=='LTS'):
-                    if core == False:
-                        LTS_nodes.append(i)
-    return CP_nodes, CS_nodes, FSI_nodes, LTS_nodes
-                    
-def gaussian(x,mean,std,pmax):
-    scale= pmax*std*math.sqrt(2*math.pi)
-    y=(scale/(std*math.sqrt(2*math.pi)))*math.exp(-0.5*((x-mean)**2/(2*std**2)))   
-    return y 
-                
+def total_duration(time_windows):
+    return np.diff(np.reshape(time_windows, (-1, 2)), axis=1).sum()
 
-def plot(choose, file=None, config=None, figsize=(6.4, 4.8)):
-    #CS_nodes=list(range(0,10))+list(range(128,148))+list(range(276,386))+list(range(619,709))
-    #CP_nodes=list(range(266,286))+list(range(429,628))
-    #FSI_nodes=list(range(88,122))+list(range(226,260))+list(range(389,422))+list(range(720,754))+list(range(950,984))
-    #LTS_nodes=list(range(112,138))+list(range(250,276))+list(range(413,439))+list(range(744,769))+list(range(974,1000))
-    
-    #CC_nodes=list(range(10,98))+list(range(138,236))+list(range(381,398))+list(range(704,729))
-    #CTH_nodes=list(range(376,391))+list(range(699,714))+list(range(760,960))
+
+def plot(choose, spike_file=None, config=None, figsize=(6.4, 4.8)):
+
     global CONFIG
-    if file is None:
-        file = 'output/spikes.h5'
-    if config is not None:
+    if config is None:
+        config = CONFIG
+    else:
         CONFIG = config
+    if spike_file is None:
+        spike_file = 'output/spikes.h5'
+
+    pop_color = {'CP': 'blue', 'CS': 'green', 'FSI': 'red', 'LTS': 'purple'}
+    pop_names = list(pop_color.keys())
+
+    if choose<=2:
+        nodes = util.load_nodes_from_config(config)
+        network_name = 'cortex'
+        cortex_df = nodes[network_name]
+
+        with h5py.File(spike_file) as f:
+            spikes_df = pd.DataFrame({
+                'node_ids': f['spikes'][network_name]['node_ids'],
+                'timestamps': f['spikes'][network_name]['timestamps']
+            })
+            spikes_df.sort_values(by='timestamps', inplace=True, ignore_index=True)
 
     if choose==1:
-        print("plotting spike raster")
-        [CP_nodes, CS_nodes, FSI_nodes, LTS_nodes] = populations(CONFIG)
-        node_set = [
-            {"name":"CP","ids":CP_nodes,"color":"blue"},
-            {"name":"CS","ids":CS_nodes,"color":"red"},
-            {"name":"FSI","ids":FSI_nodes,"color":"green"},
-            {"name":"LTS","ids":LTS_nodes,"color":"purple"}
-        ]
+        spikes_df['pop_name'] = cortex_df.loc[spikes_df['node_ids'], 'pop_name'].values
+        pop_spike = get_populations(spikes_df, pop_names)
 
-        f = h5py.File(file)
-        spikes_df = pd.DataFrame({'node_ids':f['spikes']['cortex']['node_ids'],'timestamps':f['spikes']['cortex']['timestamps']}) 
-
-        skip_ms=0
-        end_ms = 4000
+        print("Plotting cortex spike raster")
         fig, ax = plt.subplots(1, 1, figsize=figsize)
-        #_ = plot_raster(config_file=CONFIG,group_by='pop_name',group_excludes=['CC','CTH'])
-        raster(spikes_df,node_set,ax=ax, skip_ms=skip_ms)
+        raster(pop_spike, pop_color, ax=ax)
         plt.show()
-        return spikes_df
+        #_ = plot_raster(config_file=config, group_by='pop_name')
+        return pop_spike
+
     elif choose==2:
-        print("plotting firing rates")
-        #[CP_nodes, CS_nodes, FSI_nodes, LTS_nodes] = populations(CONFIG)
-        #node_set_total = [
-            #{"name":"CP","ids":CP_nodes,"color":"blue"},
-            #{"name":"CS","ids":CS_nodes,"color":"red"},
-            #{"name":"FSI","ids":FSI_nodes,"color":"green"},
-            #{"name":"LTS","ids":LTS_nodes,"color":"purple"}
-        #]
-        [cCP_nodes, cCS_nodes, cFSI_nodes, cLTS_nodes] = core_populations(CONFIG)
-        node_set_core = [
-            {"name":"CP","ids":cCP_nodes,"color":"blue"},
-            {"name":"CS","ids":cCS_nodes,"color":"red"},
-            {"name":"FSI","ids":cFSI_nodes,"color":"green"},
-            {"name":"LTS","ids":cLTS_nodes,"color":"purple"}
-        ]
-        [iCP_nodes, iCS_nodes, iFSI_nodes, iLTS_nodes] = intermediate_populations(CONFIG)
-        node_set_intermediate = [
-            {"name":"CP","ids":iCP_nodes,"color":"blue"},
-            {"name":"CS","ids":iCS_nodes,"color":"red"},
-            {"name":"FSI","ids":iFSI_nodes,"color":"green"},
-            {"name":"LTS","ids":iLTS_nodes,"color":"purple"}
-        ]
+        conf = bionet.Config.from_json(config)
+        t_stop = conf['run']['tstop'] / 1000
 
-        f = h5py.File(file)
-        spikes_df = pd.DataFrame({'node_ids':f['spikes']['cortex']['node_ids'],'timestamps':f['spikes']['cortex']['timestamps']}) 
+        frs = firing_rate(spikes_df, num_cells=len(cortex_df), time_windows=(0., t_stop))
+        cortex_nodes = get_populations(cortex_df, pop_names, only_id=True)
+        pop_fr = {p: frs[nid] for p, nid in cortex_nodes.items()}
 
-        skip_ms=0
-        end_ms = 4000
-        fig, ax = plt.subplots(1, 2, figsize=figsize)
-        #_ = plot_rates_boxplot(config_file=CONFIG,group_by='pop_name',group_excludes=['CC','CTH'])
-        #spike_frequency_histogram(spikes_df,node_set_total,end_ms,ax=ax[0],skip_ms=skip_ms)
-        spike_frequency_histogram(spikes_df,node_set_core,end_ms,ax=ax[0],skip_ms=skip_ms)
-        ax[0].set_title("Core Rates")
-        spike_frequency_histogram(spikes_df,node_set_intermediate,end_ms,ax=ax[1],skip_ms=skip_ms)
-        ax[1].set_title("Intermediate Rates")
+        print('Firing rate: mean/(std)')
+        for p, fr in pop_fr.items():
+            print(f'{p}: {fr.mean():.4g}/({fr.std():.4g})')
+
+        print("Plotting firing rates")
+        min_fr = 0.5 / total_duration((0., t_stop)) # to replace 0 spikes
+        fig, ax = plt.subplots(1, 1, figsize=figsize)
+        firing_rate_histogram(pop_fr, pop_color, bins=20, min_fr=min_fr,
+                              logscale=True, stacked=False, ax=ax)
         plt.show()
-        return spikes_df
+        return frs
+
     elif choose==3:
         print("plotting voltage trace")
-        _ = plot_traces(config_file=CONFIG, report_name='v_report', group_by='pop_name', group_excludes=['CP','CS','LTS','CC','CTH'], average=True)
-    elif choose==4:
-        print("plotting syn report")
-        _ = plot_traces(report_path='./output/Gfluct_exc.h5')
-        #./output/PN2FSI_nmda_report.h5
-        #./output/PN2FSI_ampa_report.h5
-        #./output/Gfluct_exc.h5
-        #./output/Gfluct_inh.h5
-    elif choose==5:
-        x=range(-300, 300)
-        gaus= np.vectorize(gaussian)
-        y=gaus(x,0,124.62,0.05)
-        plt.plot(x,y)
-        plt.show()
+        _ = plot_traces(config_file=config, report_name='v_report',
+                        group_by='pop_name', average=True)
+
     else:
-        print('ID not identified.')
+        print('Choice ID not identified.')
+
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        plot(choose=int(sys.argv[1]), file=sys.argv[2] if len(sys.argv) > 2 else None)
-        #intermediate_populations(CONFIG)
-    else:
-        #intermediate_populations(CONFIG)
-        plot(choose=1)
+    argv = sys.argv[1:]
+    narg = len(argv)
+    if narg > 0:
+        argv[0] = int(argv[0])
+    plot(*argv)

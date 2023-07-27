@@ -65,8 +65,8 @@ if __name__ == '__main__':
 
     if i < len(sys.argv) - 1:
         argv = sys.argv[i + 1:]
-        for i in range(len(argv)):
-            argv[i] = eval(argv[1])
+        for i in range(1, len(argv)):
+            argv[i] = eval(argv[i])
         run(*argv)
     else:
         run()

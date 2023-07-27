@@ -7,7 +7,7 @@
     "target_simulator": "NEURON",
     "run": {
       "tstart": 0.0,
-      "tstop": 16000.0,
+      "tstop": 21000.0,
       "dt": 0.05,
       "dL": 2000000.0,
       "spike_threshold": -15.0,
@@ -50,7 +50,8 @@
         "electrode_positions": "$BASE_DIR/components/recXelectrodes/single_electrode.csv",
         "file_name": "ecp.h5",
         "tmp_dir": "$BASE_DIR/ecp_tmp",
-        "electrode_channels": "all"
+        "electrode_channels": "all",
+		"minimum_distance": "auto"
         }
     },
     "node_sets_file": "$BASE_DIR/node_sets.json"

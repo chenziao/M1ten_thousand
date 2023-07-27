@@ -20,7 +20,7 @@ rng = np.random.default_rng(randseed)
 connectors.rng = rng
 
 network_dir = 'network'
-t_sim = 16000.0  # ms
+t_sim = 21000.0  # ms
 dt = 0.05  # ms
 
 # Network size and dimensions
@@ -1049,7 +1049,7 @@ edge_params = {
         'connector_class': OneToOneSequentialConnector,
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.4,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 2,
@@ -1061,7 +1061,7 @@ edge_params = {
         'connector_params': {'param': 'Thal2CP'},
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.4,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 2,
@@ -1072,7 +1072,7 @@ edge_params = {
         'connector_class': OneToOneSequentialConnector,
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.4,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 2,
@@ -1084,7 +1084,7 @@ edge_params = {
         'connector_params': {'param': 'Base2CP'},
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.4,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 2,
@@ -1096,7 +1096,7 @@ edge_params = {
         'connector_params': {'param': 'Base2CP'},
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.4,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 1,  # dend
@@ -1108,7 +1108,7 @@ edge_params = {
         'connector_params': {'param': 'Base2CP'},
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.,
+        'weight_sigma': 0.4,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 1,  # dend
