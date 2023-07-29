@@ -241,9 +241,9 @@ begintemplate CP_Cell
 			noiseRandObj.normal(0,1)
 
 			noise = new Gfluct2(0.5)
-			noise.g_e0 = 0.005 //0.002
+			noise.g_e0 = 0.0052 //0.002
 			noise.g_i0 = 0.005 //0.021
-			noise.std_e = 0.002 //0.001
+			noise.std_e = 0.0013 //0.001
 			noise.std_i = 0.0025 //0.008
 			noise.E_i = -90.0 //-75
 			// noise.tau_e = 10.0
@@ -500,10 +500,10 @@ begintemplate CS_Cell
 			noiseRandObj.normal(0,1)
 
 			noise = new Gfluct2(0.5)
-			noise.g_e0 = 0.004 //0.002
-			noise.g_i0 = 0.005 //0.021
-			noise.std_e = 0.0016 //0.001
-			noise.std_i = 0.0025 //0.008
+			noise.g_e0 = 0.0044 //0.002
+			noise.g_i0 = 0.004 //0.021
+			noise.std_e = 0.0011 //0.001
+			noise.std_i = 0.002 //0.008
 			noise.E_i = -90.0 //-75
 			// noise.tau_e = 10.0
 			// noise.tau_i = 30.0
@@ -606,10 +606,10 @@ begintemplate FSI_Cell
 			noiseRandObj.normal(0,1)
 
 			soma noise = new Gfluct2(0.5)
-			noise.g_e0 = 0.0012 //0.00121
-			noise.g_i0 = 0.005 //0.00573
-			noise.std_e = 0.0003 //0.00012
-			noise.std_i = 0.0025 //0.00264
+			noise.g_e0 = 0.001 //0.00121
+			noise.g_i0 = 0.004 //0.00573
+			noise.std_e = 0.00025 //0.00012
+			noise.std_i = 0.002 //0.00264
 
 			noise.setRandObj(noiseRandObj)
 		}
@@ -719,9 +719,9 @@ begintemplate LTS_Cell
 			noiseRandObj.normal(0,1)
 
 			noise = new Gfluct2(0.5)
-			noise.g_e0 = 0.0008 //0.00121
+			noise.g_e0 = 0.0007 //0.00121
 			noise.g_i0 = 0.004 //0.00573
-			noise.std_e = 0.0002 //0.00012
+			noise.std_e = 0.000175 //0.00012
 			noise.std_i = 0.002 //0.00264
 
 			noise.setRandObj(noiseRandObj)

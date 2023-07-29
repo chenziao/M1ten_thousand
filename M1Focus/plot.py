@@ -12,6 +12,9 @@ from bmtk.analyzer.spike_trains import plot_raster
 from bmtk.analyzer.spike_trains import plot_rates_boxplot
 
 CONFIG = "config.json"
+pop_color = {'CP': 'blue', 'CS': 'green', 'FSI': 'red', 'LTS': 'purple'}
+pop_color = {p: 'tab:' + clr for p, clr in pop_color.items()}
+pop_names = list(pop_color.keys())
 
 
 def raster(pop_spike, pop_color, s=0.1, ax=None):
@@ -19,12 +22,12 @@ def raster(pop_spike, pop_color, s=0.1, ax=None):
         fig, ax = plt.subplots(1, 1)
     for p, spike_df in reversed(pop_spike.items()):
         ax.scatter(spike_df['timestamps'], spike_df['node_ids'],
-                   c='tab:' + pop_color[p], s=s, label=p)
+                   c=pop_color[p], s=s, label=p)
+    ax.set_xlim(left=0.)
     ax.set_title('Spike Raster Plot')
-    ax.legend(loc='upper right')
+    ax.legend(loc='upper right', framealpha=0.9, markerfirst=False)
     ax.set_xlabel('Time (ms)')
     ax.set_ylabel('Cell ID')
-    ax.grid(True)
     return ax
 
 
@@ -106,9 +109,6 @@ def plot(choose, spike_file=None, config=None, figsize=(6.4, 4.8)):
     if spike_file is None:
         spike_file = 'output/spikes.h5'
 
-    pop_color = {'CP': 'blue', 'CS': 'green', 'FSI': 'red', 'LTS': 'purple'}
-    pop_names = list(pop_color.keys())
-
     if choose<=2:
         nodes = util.load_nodes_from_config(config)
         network_name = 'cortex'
@@ -140,9 +140,9 @@ def plot(choose, spike_file=None, config=None, figsize=(6.4, 4.8)):
         cortex_nodes = get_populations(cortex_df, pop_names, only_id=True)
         pop_fr = {p: frs[nid] for p, nid in cortex_nodes.items()}
 
-        print('Firing rate: mean/(std)')
+        print('Firing rate: mean, std')
         for p, fr in pop_fr.items():
-            print(f'{p}: {fr.mean():.4g}/({fr.std():.4g})')
+            print(f'{p}: {fr.mean():.3g}, {fr.std():.3g}')
 
         print("Plotting firing rates")
         min_fr = 0.5 / total_duration((0., t_stop)) # to replace 0 spikes
