@@ -47,7 +47,7 @@
         "cells": "all",
         "variable_name": "v",
         "module": "ecp",
-        "electrode_positions": "$BASE_DIR/components/recXelectrodes/electrode_1d.csv",
+        "electrode_positions": "$BASE_DIR/components/recXelectrodes/single_electrode.csv",
         "file_name": "ecp.h5",
         "tmp_dir": "$BASE_DIR/ecp_tmp",
         "electrode_channels": "all",

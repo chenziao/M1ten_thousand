@@ -21,12 +21,12 @@ echo "Started running at $START."
 export HDF5_USE_FILE_LOCKING=FALSE
 unset DISPLAY
 
-mpirun ./components/mechanisms/x86_64/special -mpi -python run_network.py config_long.json True #srun
+mpirun ./components/mechanisms/x86_64/special -mpi -python run_network.py config.json True #srun
 
 END=$(date)
 echo "Done running simulation at $END"
 
-TRIALNAME="long_test_22"
+TRIALNAME="baseline_test_27"
 mkdir ../Analysis/simulation_results/"$TRIALNAME"
 cp -a output/. ../Analysis/simulation_results/"$TRIALNAME"
 cp -a ecp_tmp/. ../Analysis/simulation_results/"$TRIALNAME"
