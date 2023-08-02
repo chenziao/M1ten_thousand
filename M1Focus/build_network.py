@@ -1072,7 +1072,7 @@ edge_params = {
         'connector_class': OneToOneSequentialConnector,
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.4,
+        'weight_sigma': 0.6,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 2,
@@ -1084,7 +1084,7 @@ edge_params = {
         'connector_params': {'param': 'Base2CP'},
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.4,
+        'weight_sigma': 0.6,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 2,
@@ -1096,7 +1096,7 @@ edge_params = {
         'connector_params': {'param': 'Base2CP'},
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.4,
+        'weight_sigma': 1.0,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 1,  # dend
@@ -1108,7 +1108,7 @@ edge_params = {
         'connector_params': {'param': 'Base2CP'},
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.4,
+        'weight_sigma': 1.0,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 1,  # dend
@@ -1122,7 +1122,9 @@ edge_add_properties = {
     'syn_dist_delay_feng_section_PN': {
         'names': ['delay', 'afferent_section_id', 'afferent_section_pos'],
         'rule': syn_dist_delay_feng_section_PN,
-        'rule_params': {'p': 0.9, 'sec_id': (1, 2), 'sec_x': (0.4, 0.6), 'min_delay': 1.4},
+        'rule_params': {
+            'p': 0.9, 'sec_id': (1, 2), 'sec_x': (0.4, 0.6), 'min_delay': 1.0
+        },
         'dtypes': [float, np.uint16, float]
     },
     'syn_section_PN': {

@@ -1,10 +1,10 @@
 import numpy as np
 import pandas as pd
+import scipy.signal as ss
 import matplotlib.pyplot as plt
 import h5py
 import sys
 import os
-from scipy.signal import periodogram
 from build_input import get_populations, get_stim_cycle
 
 MODEL_PATH = os.path.join('..', 'M1Focus')
@@ -14,11 +14,11 @@ pop_color = {p: 'tab:' + clr for p, clr in pop_color.items()}
 pop_names = list(pop_color.keys())
 
 
-def raster(pop_spike, pop_color, s=0.1, ax=None):
+def raster(pop_spike, pop_color, id_column='node_ids', s=0.1, ax=None):
     if ax is None:
         _, ax = plt.subplots(1, 1)
-    for p, spike_df in reversed(pop_spike.items()):
-        ax.scatter(spike_df['timestamps'], spike_df['node_ids'],
+    for p, spike_df in pop_spike.items():
+        ax.scatter(spike_df['timestamps'], spike_df[id_column],
                    c=pop_color[p], s=s, label=p)
     ax.set_xlim(left=0.)
     ax.set_title('Spike Raster Plot')
@@ -106,6 +106,25 @@ def pop_spike_rate(spike_times, time, frequeny=False):
     return spike_rate
 
 
+def xcorr_coeff(x, y, max_lag=None, dt=1., plot=True, ax=None):
+    x = np.asarray(x)
+    y = np.asarray(y)
+    xcorr = ss.correlate(x, y) / x.size / x.std() / y.std()
+    xcorr_lags = ss.correlation_lags(x.size, y.size)
+    if max_lag is not None:
+        lag_idx = np.nonzero(np.abs(xcorr_lags) <= max_lag / dt)[0]
+        xcorr = xcorr[lag_idx]
+        xcorr_lags = xcorr_lags[lag_idx]
+
+    if plot:
+        if ax is None:
+            _, ax = plt.subplots(1, 1)
+        ax.plot(dt * xcorr_lags, xcorr)
+        ax.set_xlabel('Lag')
+        ax.set_ylabel('Cross Correlation')
+    return xcorr, xcorr_lags
+
+
 def get_psd_on_stimulus(t, x, fs, on_time, off_time,
                         t_start, t_stop=None, tseg=None):
     t = np.asarray(t)
@@ -129,7 +148,7 @@ def get_psd_on_stimulus(t, x, fs, on_time, off_time,
             x = x[m + j * nfft:m + min((j + 1) * nfft, i_on)]
             n = (i * nseg_cycle + j) * nfft
             x_on[n:n + x.size] = x
-    f, pxx = periodogram(x_on, fs=fs, nfft=nfft)
+    f, pxx = ss.periodogram(x_on, fs=fs, nfft=nfft)
 
     stim_cycle = {'t_cycle': t_cycle, 'n_cycle': n_cycle,
                   't_start': t_start, 'on_time': on_time,

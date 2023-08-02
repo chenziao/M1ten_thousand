@@ -1313,8 +1313,10 @@ class OneToOneSequentialConnector(AbstractConnector):
 ##############################################################################
 ######################### ADDTIONAL EDGE PROPERTIES ##########################
 
-SYN_MIN_DELAY = 1.0  # ms
+SYN_MIN_DELAY = 0.8  # ms
 SYN_VELOCITY = 1000.  # um/ms
+DELAY_LOWBOUND = 0.2 # ms must be greater than h.dt
+DELAY_UPBOUND = 2.0 # ms
 
 def syn_dist_delay_feng(source, target,
                         min_delay=SYN_MIN_DELAY, velocity=SYN_VELOCITY,
@@ -1329,7 +1331,8 @@ def syn_dist_delay_feng(source, target,
     else:
         dist = connector.get_conn_prop(source.node_id, target.node_id)
     del_fluc = fluc_stdev * rng.normal()
-    delay = max(dist / SYN_VELOCITY + SYN_MIN_DELAY + del_fluc, 0.)
+    delay = dist / SYN_VELOCITY + SYN_MIN_DELAY + del_fluc
+    delay = min(max(delay, DELAY_LOWBOUND), DELAY_UPBOUND)
     return delay
 
 
