@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import h5py
 import sys
 import os
-from build_input import get_populations, get_stim_cycle
+from build_input import get_populations, get_stim_cycle, t_stop
 
 MODEL_PATH = os.path.join('..', 'M1Focus')
 CONFIG = 'config.json'
@@ -17,10 +17,14 @@ pop_names = list(pop_color.keys())
 def raster(pop_spike, pop_color, id_column='node_ids', s=0.1, ax=None):
     if ax is None:
         _, ax = plt.subplots(1, 1)
+    ymin, ymax = [], []
     for p, spike_df in pop_spike.items():
-        ax.scatter(spike_df['timestamps'], spike_df[id_column],
-                   c=pop_color[p], s=s, label=p)
+        ids = spike_df[id_column]
+        ax.scatter(spike_df['timestamps'], ids, c=pop_color[p], s=s, label=p)
+        ymin.append(ids.min())
+        ymax.append(ids.max())
     ax.set_xlim(left=0.)
+    ax.set_ylim([np.min(ymin) - 1, np.max(ymax) + 1])
     ax.set_title('Spike Raster Plot')
     ax.legend(loc='upper right', framealpha=0.9, markerfirst=False)
     ax.set_xlabel('Time (ms)')
@@ -125,12 +129,14 @@ def xcorr_coeff(x, y, max_lag=None, dt=1., plot=True, ax=None):
     return xcorr, xcorr_lags
 
 
-def get_psd_on_stimulus(t, x, fs, on_time, off_time,
-                        t_start, t_stop=None, tseg=None):
-    t = np.asarray(t)
+def get_seg_on_stimulus(x, fs, on_time, off_time,
+                        t_start, t=t_stop, tseg=None):
     x = np.asarray(x)
-    if t_stop is None:
-        t_stop = t.size / fs # Simulation time
+    in_dim = x.ndim
+    if in_dim == 1:
+        x = x.reshape(1, x.size)
+    t = np.asarray(t)
+    t_stop = t.size / fs if t.ndim else t
     if tseg is None:
         tseg = on_time # time segment length for PSD (second)
     t_cycle, n_cycle = get_stim_cycle(on_time, off_time, t_start, t_stop)
@@ -140,20 +146,39 @@ def get_psd_on_stimulus(t, x, fs, on_time, off_time,
     i_on = int(on_time * fs)
     i_cycle = int(t_cycle * fs)
     nseg_cycle = int(np.ceil(i_on / nfft))
-    x_on = np.zeros(n_cycle * nseg_cycle * nfft)
+    x_on = np.zeros((x.shape[0], n_cycle * nseg_cycle * nfft))
 
     for i in range(n_cycle):
         m = i_start + i * i_cycle
         for j in range(nseg_cycle):
-            x = x[m + j * nfft:m + min((j + 1) * nfft, i_on)]
+            xx = x[:, m + j * nfft:m + min((j + 1) * nfft, i_on)]
             n = (i * nseg_cycle + j) * nfft
-            x_on[n:n + x.size] = x
-    f, pxx = ss.periodogram(x_on, fs=fs, nfft=nfft)
+            x_on[:, n:n + xx.shape[1]] = xx
+    if in_dim == 1:
+        x_on = x_on.ravel()
 
     stim_cycle = {'t_cycle': t_cycle, 'n_cycle': n_cycle,
                   't_start': t_start, 'on_time': on_time,
                   'i_start': i_start, 'i_cycle': i_cycle}
+    return x_on, nfft, stim_cycle
+
+
+def get_psd_on_stimulus(x, fs, on_time, off_time,
+                        t_start, t=t_stop, tseg=None):
+    x_on, nfft, stim_cycle = get_seg_on_stimulus(
+        x, fs, on_time, off_time, t_start, t=t, tseg=tseg)
+    f, pxx = ss.periodogram(x_on, fs=fs, nfft=nfft)
     return f, pxx, stim_cycle
+
+
+def get_coh_on_stimulus(x, y, fs, on_time, off_time,
+                        t_start, t=t_stop, tseg=None):
+    xy = np.array([x, y])
+    xy_on, nfft, _ = get_seg_on_stimulus(
+        xy, fs, on_time, off_time, t_start, t=t, tseg=tseg)
+    f, cxy = ss.coherence(xy_on[0], xy_on[1], fs=fs,
+        window='boxcar', nperseg=nfft, noverlap=0)
+    return f, cxy
 
 
 def plot_stimulus_cycles(t, x, stim_cycle, dv_n_sigma=5.,
@@ -179,15 +204,15 @@ def plot_stimulus_cycles(t, x, stim_cycle, dv_n_sigma=5.,
 
 
 def fit_fooof(f, pxx, aperiodic_mode='fixed', dB_threshold=3., max_n_peaks=10,
-              freq_range=None, peak_width_limits=None,
-              report=False, plot=False, plt_log=False, plt_range=None):
+              freq_range=None, peak_width_limits=None, report=False,
+              plot=False, plt_log=False, plt_range=None, figsize=None):
     from fooof import FOOOF
 
     if aperiodic_mode != 'knee':
         aperiodic_mode = 'fixed'
     def set_range(x, upper=f[-1]):        
         x = np.array(upper) if x is None else np.array(x)
-        return [f[2], x.item()] if x.size == 1 else x.to_list()
+        return [f[2], x.item()] if x.size == 1 else x.tolist()
     freq_range = set_range(freq_range)
     peak_width_limits = set_range(peak_width_limits, np.inf)
 
@@ -210,6 +235,8 @@ def fit_fooof(f, pxx, aperiodic_mode='fixed', dB_threshold=3., max_n_peaks=10,
         plt_range = set_range(plt_range)
         fm.plot(plt_log=plt_log)
         plt.xlim(np.log10(plt_range) if plt_log else plt_range)
+        if figsize:
+            plt.gcf().set_size_inches(figsize)
         plt.show()
     return results, fm
 

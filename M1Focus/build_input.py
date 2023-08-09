@@ -14,9 +14,9 @@ rng = np.random.default_rng(randseed)
 INPUT_PATH = "./input"
 
 N_ASSEMBLIES = 10  # number of assemblies
-t_stop = 21.  # sec. Simulation time
+t_stop = 31.  # sec. Simulation time
 t_start = 1.0  # sec. Time to start burst input
-on_time = 0.5  # sec. Burst input duration
+on_time = 1.0  # sec. Burst input duration
 off_time = 0.5  # sec. Silence duration
 
 
@@ -206,7 +206,7 @@ def build_input(t_stop=t_stop, n_assemblies=N_ASSEMBLIES):
         writer.writerows(Thal_assy)
         writer.writerows(PN_assy)
 
-    Thal_burst_fr = (50., 0.)  # Hz. Poisson mean firing rate for burst input
+    Thal_burst_fr = 50.0  # Hz. Poisson mean firing rate for burst input
     PN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to PNs
     ITN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to ITNs
     sim_time = (0, t_stop)  # Whole simulation
@@ -218,6 +218,12 @@ def build_input(t_stop=t_stop, n_assemblies=N_ASSEMBLIES):
     psg.add(node_ids=Base_nodes['FSI'] + Base_nodes['LTS'],
             firing_rate=ITN_baseline_fr, times=sim_time)
     psg.to_sonata(os.path.join(INPUT_PATH, "baseline.h5"))
+
+    # Constant thalamus input
+    psg = PoissonSpikeGenerator(population='thalamus', seed=psgseed + 1)
+    psg = get_psg_long(psg, Thal_assy, [Thal_burst_fr] * 2, on_time, off_time,
+                       t_start=t_start, t_stop=t_stop)
+    psg.to_sonata(os.path.join(INPUT_PATH, "thalamus_const.h5"))
 
     # Short burst thalamus input
     psg = PoissonSpikeGenerator(population='thalamus', seed=psgseed + 1)

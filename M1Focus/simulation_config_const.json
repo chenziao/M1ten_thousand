@@ -29,6 +29,12 @@
             "module": "sonata",
             "input_file": "$INPUT_DIR/shell.h5",
             "node_set": "shell"
+        },
+        "thalamus_spikes": {
+			"input_type": "spikes",
+			"module": "sonata",
+			"input_file": "$INPUT_DIR/thalamus_const.h5",
+			"node_set": "thalamus"
         }
     },
     "output": {

@@ -20,8 +20,8 @@ rng = np.random.default_rng(randseed)
 connectors.rng = rng
 
 network_dir = 'network'
-t_sim = 21000.0  # ms
-dt = 0.05  # ms
+t_sim = 31000.0  # ms
+dt = 0.1  # ms
 
 # Network size and dimensions
 num_cells = 10000  # 10000
@@ -1049,7 +1049,7 @@ edge_params = {
         'connector_class': OneToOneSequentialConnector,
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.4,
+        'weight_sigma': 0.3,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 2,
@@ -1061,7 +1061,7 @@ edge_params = {
         'connector_params': {'param': 'Thal2CP'},
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.4,
+        'weight_sigma': 0.3,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 2,
@@ -1072,7 +1072,7 @@ edge_params = {
         'connector_class': OneToOneSequentialConnector,
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.6,
+        'weight_sigma': 0.3,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 2,
@@ -1084,7 +1084,7 @@ edge_params = {
         'connector_params': {'param': 'Base2CP'},
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 0.6,
+        'weight_sigma': 0.3,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 2,
@@ -1096,7 +1096,7 @@ edge_params = {
         'connector_params': {'param': 'Base2CP'},
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 1.0,
+        'weight_sigma': 0.6,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 1,  # dend
@@ -1108,7 +1108,7 @@ edge_params = {
         'connector_params': {'param': 'Base2CP'},
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
-        'weight_sigma': 1.0,
+        'weight_sigma': 0.6,
         'sigma_upper_bound': 3.,
         'delay': 0.0,
         'afferent_section_id': 1,  # dend
@@ -1306,10 +1306,8 @@ if False:
         report_vars=['v'],
         celsius=31.0,
         spikes_inputs=[
-            ('thalamus', './input/thalamus_base.h5'),
-            ('thalamus', './input/thalamus_short.h5'),
-            ('thalamus', './input/thalamus_long.h5'),
-            ('baseline', './input/baseline.h5')
+            ('baseline', './input/baseline.h5'),
+            ('shell', './input/shell.h5')
         ],  # (Population for which spikes will be generated, file name)
         components_dir='components',
         config_file='config.json',

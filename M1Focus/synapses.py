@@ -18,8 +18,11 @@ def get_logn_params(m, s, sigma_lower, sigma_upper):
     key = (m, s)
     params = LOGN_PARAM_DICT.get(key)
     if params is None:
-        sigma2 = np.log((s / m) ** 2 + 1)
-        params = [np.log(m) - sigma2 / 2, sigma2 ** 0.5, {}]
+        if m:
+            sigma2 = np.log((s / m) ** 2 + 1)
+            params = [np.log(m) - sigma2 / 2, sigma2 ** 0.5, {}]
+        else:
+            params = [-np.inf, 0., {}]
         LOGN_PARAM_DICT[key] = params
     key = (sigma_lower, sigma_upper)
     bounds = params[2].get(key)

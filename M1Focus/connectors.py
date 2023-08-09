@@ -1315,12 +1315,13 @@ class OneToOneSequentialConnector(AbstractConnector):
 
 SYN_MIN_DELAY = 0.8  # ms
 SYN_VELOCITY = 1000.  # um/ms
+FLUC_STDEV = 0.2  # ms
 DELAY_LOWBOUND = 0.2 # ms must be greater than h.dt
 DELAY_UPBOUND = 2.0 # ms
 
 def syn_dist_delay_feng(source, target,
                         min_delay=SYN_MIN_DELAY, velocity=SYN_VELOCITY,
-                        fluc_stdev=0.2, connector=None):
+                        fluc_stdev=FLUC_STDEV, connector=None):
     """Synpase delay linearly dependent on distance.
     min_delay: minimum delay (ms)
     velocity: synapse conduction velocity (micron/ms)

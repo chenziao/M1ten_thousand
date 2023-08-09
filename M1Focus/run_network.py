@@ -32,12 +32,14 @@ def run(config_file=CONFIG, use_coreneuron=USE_CORENEURON):
     else:
         sim = bionet.BioSimulator.from_config(conf, network=graph)
 
+    '''
     # This calls insert_mechs() on each cell to use its gid as a seed
     # to the random number generator, so that each cell gets a different
     # random seed for the point-conductance noise
     cells = graph.get_local_cells()
     for cell in cells:
         cells[cell].hobj.insert_mechs(cells[cell].gid)
+    '''
 
     # clear ecp temporary directory to avoid errors
     try:
