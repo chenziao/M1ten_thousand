@@ -19,10 +19,11 @@ def raster(pop_spike, pop_color, id_column='node_ids', s=0.1, ax=None):
         _, ax = plt.subplots(1, 1)
     ymin, ymax = [], []
     for p, spike_df in pop_spike.items():
-        ids = spike_df[id_column]
-        ax.scatter(spike_df['timestamps'], ids, c=pop_color[p], s=s, label=p)
-        ymin.append(ids.min())
-        ymax.append(ids.max())
+        if len(spike_df) > 0:
+            ids = spike_df[id_column].values
+            ax.scatter(spike_df['timestamps'], ids, c=pop_color[p], s=s, label=p)
+            ymin.append(ids.min())
+            ymax.append(ids.max())
     ax.set_xlim(left=0.)
     ax.set_ylim([np.min(ymin) - 1, np.max(ymax) + 1])
     ax.set_title('Spike Raster Plot')
@@ -167,7 +168,7 @@ def get_psd_on_stimulus(x, fs, on_time, off_time,
                         t_start, t=t_stop, tseg=None):
     x_on, nfft, stim_cycle = get_seg_on_stimulus(
         x, fs, on_time, off_time, t_start, t=t, tseg=tseg)
-    f, pxx = ss.periodogram(x_on, fs=fs, nfft=nfft)
+    f, pxx = ss.welch(x_on, fs=fs, window='boxcar', nperseg=nfft, noverlap=0)
     return f, pxx, stim_cycle
 
 
@@ -194,7 +195,7 @@ def plot_stimulus_cycles(t, x, stim_cycle, dv_n_sigma=5.,
     for i in range(n_cycle):
         m = i_start + i * i_cycle
         xx = x[m:m + i_cycle] + (n_cycle - i - 1) * dv
-        ax.plot(t[:i_cycle], xx, label=f'stimulus {i + 1:d}')
+        ax.plot(t[:len(xx)], xx, label=f'stimulus {i + 1:d}')
     ax.axvline(on_time * 1000, color='gray', label='stimulus off')
     ax.set_xlim(0, 1000 * max(1.25 * t_cycle, t_start))
     ax.set_ylim(np.array((-2, n_cycle + 2)) * dv)
@@ -246,11 +247,10 @@ def psd_residual(f, pxx, fooof_result, plot=False, plt_log=False, plt_range=None
 
     full_fit, _, ap_fit = gen_model(f[1:], fooof_result.aperiodic_params,
                                     fooof_result.gaussian_params, return_components=True)
-    full_fit = np.insert(10 ** full_fit, 0, 0.)
-    ap_fit = np.insert(10 ** ap_fit, 0, 0.)
+    full_fit, ap_fit = 10 ** full_fit, 10 ** ap_fit
 
-    res_psd = pxx - ap_fit
-    res_fit = full_fit - ap_fit
+    res_psd = np.insert(pxx[1:] - ap_fit, 0, 0.)
+    res_fit = np.insert(full_fit - ap_fit, 0, 0.)
 
     if plot:
         if ax is None:
@@ -268,6 +268,41 @@ def psd_residual(f, pxx, fooof_result, plot=False, plt_log=False, plt_range=None
         ax.set_xlabel('Frequency (Hz)')
         ax.set_ylabel('PSD Residual')
     return res_psd, res_fit
+
+
+def plot_spectrogram(x, fs, tseg, tres=np.inf, remove_aperiodic=None,
+                     plt_log=False, plt_range=None, ax=None):
+    nfft = int(tseg * fs) # steps per segment
+    noverlap = int(max(tseg - tres, 0) * fs)
+    f, t, sxx = ss.spectrogram(x, fs=fs, nperseg=nfft, noverlap=noverlap, window='boxcar')
+
+    cbar_label = 'PSD' if remove_aperiodic is None else 'PSD Residual'
+    if plt_log:
+        with np.errstate(divide='ignore'):
+            sxx = np.log10(sxx)
+        cbar_label += ' log(power)'
+
+    if remove_aperiodic is not None:
+        from fooof.sim.gen import gen_aperiodic
+
+        ap_fit = gen_aperiodic(f[1:], remove_aperiodic.aperiodic_params)
+        sxx[1:, :] -= (ap_fit if plt_log else 10 ** ap_fit)[:, None]
+        sxx[0, :] = 0.
+
+    if ax is None:
+        _, ax = plt.subplots(1, 1)
+    plt_range = np.array(f[-1]) if plt_range is None else np.array(plt_range)
+    if plt_range.size == 1:
+        plt_range = [f[1] if plt_log else 0., plt_range.item()]
+    f_idx = (f >= plt_range[0]) & (f <= plt_range[1])
+
+    pcm = ax.pcolormesh(t * 1000., f, sxx, shading='gouraud')
+    ax.set_ylim(plt_range)
+    plt.colorbar(mappable=pcm, ax=ax, label=cbar_label)
+    ax.set_xlabel('Time (ms)')
+    ax.set_ylabel('Frequency (Hz)')
+
+    return f, t, sxx
 
 
 def plot(choose, spike_file=None, config=None, figsize=(6.4, 4.8)):

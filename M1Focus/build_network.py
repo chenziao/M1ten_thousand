@@ -1239,7 +1239,6 @@ if edge_effects:
 
 ##########################################################################
 ############################ GAP JUNCTIONS ###############################
-"""
 # Currently not working due to some errors in BMTK
 # FSI
 net = networks['cortex']
@@ -1287,7 +1286,6 @@ conn = net.add_edges(
     afferent_section_id=0, afferent_section_pos=0.5,
     **gap_junc_LTS.edge_params()
 )
-"""
 
 ##########################################################################
 ###############################  BUILD  ##################################

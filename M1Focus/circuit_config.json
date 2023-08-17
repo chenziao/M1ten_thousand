@@ -50,6 +50,10 @@
         "edges_file": "$NETWORK_DIR/shell_cortex_edges.h5"
       }
     ],
-    "gap_juncs": []
+    "gap_juncs": [
+      {
+        "gap_juncs_file": "$NETWORK_DIR/cortex_gap_juncs.h5"
+      }
+    ]
   }
 }

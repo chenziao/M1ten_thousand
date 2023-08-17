@@ -207,6 +207,7 @@ def build_input(t_stop=t_stop, n_assemblies=N_ASSEMBLIES):
         writer.writerows(PN_assy)
 
     Thal_burst_fr = 50.0  # Hz. Poisson mean firing rate for burst input
+    Thal_const_fr = 10.0  # Hz.
     PN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to PNs
     ITN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to ITNs
     sim_time = (0, t_stop)  # Whole simulation
@@ -221,7 +222,7 @@ def build_input(t_stop=t_stop, n_assemblies=N_ASSEMBLIES):
 
     # Constant thalamus input
     psg = PoissonSpikeGenerator(population='thalamus', seed=psgseed + 1)
-    psg = get_psg_long(psg, Thal_assy, [Thal_burst_fr] * 2, on_time, off_time,
+    psg = get_psg_long(psg, Thal_assy, [Thal_const_fr] * 2, on_time, off_time,
                        t_start=t_start, t_stop=t_stop)
     psg.to_sonata(os.path.join(INPUT_PATH, "thalamus_const.h5"))
 
@@ -247,8 +248,8 @@ def build_input(t_stop=t_stop, n_assemblies=N_ASSEMBLIES):
         psg = PoissonSpikeGenerator(population='shell', seed=psgseed + 10)
         constant_fr = False
 
-        shell_fr = {'CP': (1.90, 1.65), 'CS': (0.84, 1.10),
-                    'FSI': (5.15, 6.11), 'LTS': (3.43, 4.07)}
+        shell_fr = {'CP': (1.9, 1.6), 'CS': (1.3, 1.1),
+                    'FSI': (7.5, 6.4), 'LTS': (5.0, 5.0)}
         shell_nodes = get_populations(nodes['shell'], pop_names, only_id=True)
 
         # Select effective nodes in shell that only has connections to core
