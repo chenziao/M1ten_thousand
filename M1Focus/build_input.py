@@ -248,8 +248,8 @@ def build_input(t_stop=t_stop, n_assemblies=N_ASSEMBLIES):
         psg = PoissonSpikeGenerator(population='shell', seed=psgseed + 10)
         constant_fr = False
 
-        shell_fr = {'CP': (1.9, 1.6), 'CS': (1.3, 1.1),
-                    'FSI': (7.5, 6.4), 'LTS': (5.0, 5.0)}
+        shell_fr = {'CP': (1.9, 1.85), 'CS': (1.3, 1.45),
+                    'FSI': (7.5, 6.7), 'LTS': (5.0, 5.9)}
         shell_nodes = get_populations(nodes['shell'], pop_names, only_id=True)
 
         # Select effective nodes in shell that only has connections to core
