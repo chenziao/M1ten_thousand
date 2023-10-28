@@ -9,7 +9,7 @@
     "mechanisms_dir": "$COMPONENTS_DIR/mechanisms",
     "morphologies_dir": "$COMPONENTS_DIR/morphologies",
     "point_neuron_models_dir": "$COMPONENTS_DIR/point_neuron_models",
-    "synaptic_models_dir": "$COMPONENTS_DIR/synaptic_models/synapses_STP",
+    "synaptic_models_dir": "$COMPONENTS_DIR/synaptic_models/synapses_no_STP",
     "templates_dir": "$COMPONENTS_DIR/templates",
     "__pycache___dir": "$COMPONENTS_DIR/__pycache__"
   },

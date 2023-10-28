@@ -296,7 +296,7 @@ def plot_spectrogram(x, fs, tseg, tres=np.inf, remove_aperiodic=None,
         plt_range = [f[1] if plt_log else 0., plt_range.item()]
     f_idx = (f >= plt_range[0]) & (f <= plt_range[1])
 
-    pcm = ax.pcolormesh(t * 1000., f, sxx, shading='gouraud')
+    pcm = ax.pcolormesh(t * 1000., f[f_idx], sxx[f_idx, :], shading='gouraud')
     ax.set_ylim(plt_range)
     plt.colorbar(mappable=pcm, ax=ax, label=cbar_label)
     ax.set_xlabel('Time (ms)')

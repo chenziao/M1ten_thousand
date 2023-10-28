@@ -701,13 +701,13 @@ class ReciprocalConnector(AbstractConnector):
         self.callable_set = callable_set
 
         # Make callable variables except a few, accept index input instead
-        for name in callable_set - set(('p0', 'p1', 'pr')):
+        for name in callable_set - {'p0', 'p1', 'pr'}:
             var = self.vars[name]
             setattr(self, name, self.node_2_idx_input(var, '1' in name))
 
     def cache_variables(self):
         # Select cacheable attrilbutes
-        cache_set = set(('p0', 'p0_arg', 'p1', 'p1_arg'))
+        cache_set = {'p0', 'p0_arg', 'p1', 'p1_arg'}
         if self.symmetric_p1:
             cache_set.remove('p1')
         if self.symmetric_p1_arg:

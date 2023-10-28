@@ -116,9 +116,9 @@ BREAKPOINT {
     g_AMPA = gmax_AMPA*(B_AMPA-A_AMPA) :compute time varying conductance as the difference of state variables B_AMPA and A_AMPA
     g_NMDA = gmax_NMDA*(B_NMDA-A_NMDA) * mggate :compute time varying conductance as the difference of state variables B_NMDA and A_NMDA and mggate kinetics
     g = g_AMPA + g_NMDA
-    i_AMPA = g_AMPA*(v-e) * initW :compute the AMPA driving force based on the time varying conductance, membrane potential, and AMPA reversal
-    i_NMDA = g_NMDA*(v-e) * initW :compute the NMDA driving force based on the time varying conductance, membrane potential, and NMDA reversal
-    i = i_AMPA + i_NMDA
+    i_AMPA = g_AMPA*(v-e) :compute the AMPA driving force based on the time varying conductance, membrane potential, and AMPA reversal
+    i_NMDA = g_NMDA*(v-e) :compute the NMDA driving force based on the time varying conductance, membrane potential, and NMDA reversal
+    i = (i_AMPA + i_NMDA) * initW
 }
 
 
