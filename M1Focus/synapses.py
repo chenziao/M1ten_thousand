@@ -162,7 +162,7 @@ def load(randseed=1111, rng_obj=None):
     add_synapse_model(GABA_AB_STP, overwrite=False)
 
 
-def syn_params_dicts(syn_dir='components/synaptic_models'):
+def syn_params_dicts(syn_dir='components/synaptic_models/synapses_STP'):
     """
     returns: A dictionary of dictionaries containing all
     properties in the synapse json files

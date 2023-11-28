@@ -7,9 +7,10 @@ import synapses
 import connectors
 from connectors import (
     spherical_dist, cylindrical_dist_z, GaussianDropoff, UniformInRange,
-    pr_2_rho, ReciprocalConnector, UnidirectionConnector,
+    pr_2_rho, rho_2_pr, ReciprocalConnector, UnidirectionConnector,
     OneToOneSequentialConnector, CorrelatedGapJunction,
-    syn_dist_delay_feng_section_PN, syn_section_PN, syn_dist_delay_feng
+    syn_dist_delay_feng_section_PN, syn_section_PN,
+    syn_dist_delay_feng, syn_uniform_delay_section
 )
 
 ##############################################################################
@@ -315,8 +316,9 @@ def get_connector(param):
 def save_networks(networks, network_dir):
     """Build and save network"""
     # Remove the existing network_dir directory
-    for f in os.listdir(network_dir):
-        os.remove(os.path.join(network_dir, f))
+    if os.path.isdir(network_dir):
+        for f in os.listdir(network_dir):
+            os.remove(os.path.join(network_dir, f))
 
     # Run through each network and save their nodes/edges
     for network_name, network in networks.items():
@@ -1137,16 +1139,23 @@ edge_add_properties = {
         'names': 'delay',
         'rule': syn_dist_delay_feng,
         'dtypes': float
+    },
+    'syn_uniform_delay_section': {
+        'names': 'delay',
+        'rule': syn_uniform_delay_section,
+        'rule_params': {'low': 0.8, 'high': 1.2},
+        'dtypes': float
     }
 }
 
 
 # Load synapse dictionaries
-# See synapses.py - loads each json's in components/synaptic_models into a
-# dictionary so the properties can be referenced in the files,
+# See synapses.py - loads each json's in components/synaptic_models/synapses_STP
+# into a dictionary so the properties can be referenced in the files,
 # e.g., syn['file.json'].get('property')
+syn_dir = 'components/synaptic_models/synapses_STP'
 synapses.load(rng_obj=rng)
-syn = synapses.syn_params_dicts()
+syn = synapses.syn_params_dicts(syn_dir=syn_dir)
 
 # Build your edges into the networks
 build_edges(networks, edge_definitions, edge_params, edge_add_properties, syn)
@@ -1256,7 +1265,7 @@ gap_junc_FSI = CorrelatedGapJunction(
 )
 gap_junc_FSI.setup_nodes(source=population, target=population)
 
-g_gap = 0.000033 # microsiemens
+g_gap = 0.000033  # microsiemens
 conn = net.add_edges(
     is_gap_junction=True, syn_weight=g_gap, target_sections=None,
     afferent_section_id=0, afferent_section_pos=0.5,
@@ -1280,7 +1289,7 @@ gap_junc_LTS = CorrelatedGapJunction(
 )
 gap_junc_LTS.setup_nodes(source=population, target=population)
 
-g_gap = 0.00038 # microsiemens
+g_gap = 0.00038  # microsiemens
 conn = net.add_edges(
     is_gap_junction=True, syn_weight=g_gap, target_sections=None,
     afferent_section_id=0, afferent_section_pos=0.5,

@@ -5,6 +5,9 @@ import matplotlib.pyplot as plt
 import h5py
 import sys
 import os
+
+from fooof import FOOOF
+from fooof.sim.gen import gen_aperiodic, gen_model
 from build_input import get_populations, get_stim_cycle, t_stop
 
 MODEL_PATH = os.path.join('..', 'M1Focus')
@@ -35,11 +38,11 @@ def raster(pop_spike, pop_color, id_column='node_ids', s=0.1, ax=None):
 
 def firing_rate_histogram(pop_fr, pop_color, bins=30, min_fr=None,
                           logscale=False, stacked=True, ax=None):
-    if min_fr is not None:
+    if logscale and min_fr is not None:
         pop_fr = {p: np.fmax(fr, min_fr) for p, fr in pop_fr.items()}
     fr = np.concatenate(list(pop_fr.values()))
     if logscale:
-        fr = fr[np.nonzero(fr)[0]]
+        fr = fr[fr > 0]
         bins = np.geomspace(fr.min(), fr.max(), bins + 1)
     else:
         bins = np.linspace(fr.min(), fr.max(), bins + 1)
@@ -114,7 +117,9 @@ def pop_spike_rate(spike_times, time, frequeny=False):
 def xcorr_coeff(x, y, max_lag=None, dt=1., plot=True, ax=None):
     x = np.asarray(x)
     y = np.asarray(y)
-    xcorr = ss.correlate(x, y) / x.size / x.std() / y.std()
+    x = (x - x.mean()) / x.std()
+    y = (y - y.mean()) / y.std()
+    xcorr = ss.correlate(x, y) / max(x.size, y.size)
     xcorr_lags = ss.correlation_lags(x.size, y.size)
     if max_lag is not None:
         lag_idx = np.nonzero(np.abs(xcorr_lags) <= max_lag / dt)[0]
@@ -207,8 +212,6 @@ def plot_stimulus_cycles(t, x, stim_cycle, dv_n_sigma=5.,
 def fit_fooof(f, pxx, aperiodic_mode='fixed', dB_threshold=3., max_n_peaks=10,
               freq_range=None, peak_width_limits=None, report=False,
               plot=False, plt_log=False, plt_range=None, figsize=None):
-    from fooof import FOOOF
-
     if aperiodic_mode != 'knee':
         aperiodic_mode = 'fixed'
     def set_range(x, upper=f[-1]):        
@@ -243,8 +246,6 @@ def fit_fooof(f, pxx, aperiodic_mode='fixed', dB_threshold=3., max_n_peaks=10,
 
 
 def psd_residual(f, pxx, fooof_result, plot=False, plt_log=False, plt_range=None, ax=None):
-    from fooof.sim.gen import gen_model
-
     full_fit, _, ap_fit = gen_model(f[1:], fooof_result.aperiodic_params,
                                     fooof_result.gaussian_params, return_components=True)
     full_fit, ap_fit = 10 ** full_fit, 10 ** ap_fit
@@ -283,17 +284,16 @@ def plot_spectrogram(x, fs, tseg, tres=np.inf, remove_aperiodic=None,
         cbar_label += ' log(power)'
 
     if remove_aperiodic is not None:
-        from fooof.sim.gen import gen_aperiodic
-
-        ap_fit = gen_aperiodic(f[1:], remove_aperiodic.aperiodic_params)
-        sxx[1:, :] -= (ap_fit if plt_log else 10 ** ap_fit)[:, None]
-        sxx[0, :] = 0.
+        f1_idx = 0 if f[0] else 1
+        ap_fit = gen_aperiodic(f[f1_idx:], remove_aperiodic.aperiodic_params)
+        sxx[f1_idx:, :] -= (ap_fit if plt_log else 10 ** ap_fit)[:, None]
+        sxx[:f1_idx, :] = 0.
 
     if ax is None:
         _, ax = plt.subplots(1, 1)
     plt_range = np.array(f[-1]) if plt_range is None else np.array(plt_range)
     if plt_range.size == 1:
-        plt_range = [f[1] if plt_log else 0., plt_range.item()]
+        plt_range = [f[0 if f[0] else 1] if plt_log else 0., plt_range.item()]
     f_idx = (f >= plt_range[0]) & (f <= plt_range[1])
 
     pcm = ax.pcolormesh(t * 1000., f[f_idx], sxx[f_idx, :], shading='gouraud')
