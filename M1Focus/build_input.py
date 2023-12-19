@@ -1,23 +1,34 @@
+import os
+import csv
+import time
+import argparse
+
 import numpy as np
 from bmtool.util import util
 from bmtk.utils.reports.spike_trains import PoissonSpikeGenerator
 
-import sys
-import os
-import csv
-import time
-
-randseed = 4321
-psgseed = 0
-rng = np.random.default_rng(randseed)
 
 INPUT_PATH = "./input"
+STIMULUS = ['baseline', 'short', 'long']
 
 N_ASSEMBLIES = 10  # number of assemblies
-t_stop = 31.  # sec. Simulation time
-t_start = 1.0  # sec. Time to start burst input
+NET_SEED = 4321  # random seed for network r.v.'s (e.g. assemblies, firing rate)
+PSG_SEED = 0  # poisson spike generator random seed for different trials
+rng = np.random.default_rng(NET_SEED)
+
+T_STOP = 31.  # sec. Simulation time
+T_START = 1.0  # sec. Time to start burst input
+t_start = T_START
 on_time = 1.0  # sec. Burst input duration
 off_time = 0.5  # sec. Silence duration
+
+SHELL_FR = {
+    'CP': (1.9, 1.8),
+    'CS': (1.3, 1.35),
+    'FSI': (7.5, 6.7),
+    'LTS': (5.0, 5.85)
+}  # firing rate of shell neurons (mean, stdev)
+SHELL_CONSTANT_FR = False  # whether use constant firing rate for shell neurons
 
 
 def num_prop(ratio, N):
@@ -90,7 +101,7 @@ def get_assembly(Thal_nodes, Cortex_nodes, n_assemblies):
     return Thal_assy, PN_assy
 
 
-def get_stim_cycle(on_time=0.5, off_time=0.5, t_start=0., t_stop=t_stop):
+def get_stim_cycle(on_time=0.5, off_time=0.5, t_start=T_START, t_stop=T_STOP):
     """Get burst input stimulus parameters, (duration, number) of cycles"""
     t_cycle = on_time + off_time
     n_cycle = int(np.floor((t_stop + off_time - t_start) / t_cycle))
@@ -98,7 +109,7 @@ def get_stim_cycle(on_time=0.5, off_time=0.5, t_start=0., t_stop=t_stop):
 
 
 def get_psg_short(psg, Thal_assy, firing_rate=(0., 0.),
-                  on_time=0.5, off_time=0.5, t_start=0., t_stop=t_stop):
+                  on_time=0.5, off_time=0.5, t_start=T_START, t_stop=T_STOP):
     """Poisson input is first on for on_time starting at t_start, then off for
     off_time. This repeats until the last on-time can complete before t_stop.
     Short burst is delivered to each assembly sequentially within each cycle.
@@ -136,7 +147,7 @@ def get_psg_short(psg, Thal_assy, firing_rate=(0., 0.),
 
 
 def get_psg_long(psg, Thal_assy, firing_rate=(0., 0.),
-                 on_time=0.5, off_time=0.5, t_start=0., t_stop=t_stop):
+                 on_time=0.5, off_time=0.5, t_start=T_START, t_stop=T_STOP):
     """Poisson input is first on for on_time starting at t_start, then off for
     off_time. This repeats until the last on-time can complete before t_stop.
     Long burst is delivered to one assembly in each cycle.
@@ -176,7 +187,8 @@ def get_psg_long(psg, Thal_assy, firing_rate=(0., 0.),
     return psg
 
 
-def build_input(t_stop=t_stop, n_assemblies=N_ASSEMBLIES):
+def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
+                psg_seed=PSG_SEED, input_path=INPUT_PATH, stimulus=STIMULUS):
     print("Building all input spike trains...")
     start_timer = time.perf_counter()
 
@@ -189,7 +201,7 @@ def build_input(t_stop=t_stop, n_assemblies=N_ASSEMBLIES):
     pop_size = [len(n) for n in Cortex_nodes.values()]
     Base_nodes = np.split(df2node_id(nodes['baseline']), np.cumsum(pop_size))
     Base_nodes = dict(zip(pop_names, [n.tolist() for n in Base_nodes[:-1]]))
-    baseline_id_file = os.path.join(INPUT_PATH, "Baseline_ids.csv")
+    baseline_id_file = os.path.join(input_path, "Baseline_ids.csv")
     # rows: baseline ids for each population, cortex ids for each population
     with open(baseline_id_file, 'w', newline='') as f:
         writer = csv.writer(f, delimiter=',')
@@ -199,7 +211,7 @@ def build_input(t_stop=t_stop, n_assemblies=N_ASSEMBLIES):
     # Assign assemblies for PNs
     Thal_nodes = df2node_id(nodes['thalamus'])
     Thal_assy, PN_assy = get_assembly(Thal_nodes, Cortex_nodes, n_assemblies)
-    assembly_id_file = os.path.join(INPUT_PATH, "Assembly_ids.csv")
+    assembly_id_file = os.path.join(input_path, "Assembly_ids.csv")
     # rows: thalamus ids for each assembly, cortex ids for each assembly
     with open(assembly_id_file, 'w', newline='') as f:
         writer = csv.writer(f, delimiter=',')
@@ -213,30 +225,34 @@ def build_input(t_stop=t_stop, n_assemblies=N_ASSEMBLIES):
     sim_time = (0, t_stop)  # Whole simulation
 
     # Baseline input
-    psg = PoissonSpikeGenerator(population='baseline', seed=psgseed)
-    psg.add(node_ids=Base_nodes['CP'] + Base_nodes['CS'],
-            firing_rate=PN_baseline_fr, times=sim_time)
-    psg.add(node_ids=Base_nodes['FSI'] + Base_nodes['LTS'],
-            firing_rate=ITN_baseline_fr, times=sim_time)
-    psg.to_sonata(os.path.join(INPUT_PATH, "baseline.h5"))
+    if 'baseline' in stimulus:
+        psg = PoissonSpikeGenerator(population='baseline', seed=psg_seed)
+        psg.add(node_ids=Base_nodes['CP'] + Base_nodes['CS'],
+                firing_rate=PN_baseline_fr, times=sim_time)
+        psg.add(node_ids=Base_nodes['FSI'] + Base_nodes['LTS'],
+                firing_rate=ITN_baseline_fr, times=sim_time)
+        psg.to_sonata(os.path.join(input_path, "baseline.h5"))
 
     # Constant thalamus input
-    psg = PoissonSpikeGenerator(population='thalamus', seed=psgseed + 1)
-    psg = get_psg_long(psg, Thal_assy, [Thal_const_fr] * 2, on_time, off_time,
-                       t_start=t_start, t_stop=t_stop)
-    psg.to_sonata(os.path.join(INPUT_PATH, "thalamus_const.h5"))
+    if 'const' in stimulus:
+        psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 1)
+        psg = get_psg_long(psg, Thal_assy, [Thal_const_fr] * 2, on_time, off_time,
+                           t_start=t_start, t_stop=t_stop)
+        psg.to_sonata(os.path.join(input_path, "thalamus_const.h5"))
 
     # Short burst thalamus input
-    psg = PoissonSpikeGenerator(population='thalamus', seed=psgseed + 1)
-    psg = get_psg_short(psg, Thal_assy, Thal_burst_fr, on_time, off_time,
-                        t_start=t_start, t_stop=t_stop)
-    psg.to_sonata(os.path.join(INPUT_PATH, "thalamus_short.h5"))
+    if 'short' in stimulus:
+        psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 1)
+        psg = get_psg_short(psg, Thal_assy, Thal_burst_fr, on_time, off_time,
+                            t_start=t_start, t_stop=t_stop)
+        psg.to_sonata(os.path.join(input_path, "thalamus_short.h5"))
 
     # Long burst thalamus input
-    psg = PoissonSpikeGenerator(population='thalamus', seed=psgseed + 1)
-    psg = get_psg_long(psg, Thal_assy, Thal_burst_fr, on_time, off_time,
-                       t_start=t_start, t_stop=t_stop)
-    psg.to_sonata(os.path.join(INPUT_PATH, "thalamus_long.h5"))
+    if 'long' in stimulus:
+        psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 1)
+        psg = get_psg_long(psg, Thal_assy, Thal_burst_fr, on_time, off_time,
+                           t_start=t_start, t_stop=t_stop)
+        psg.to_sonata(os.path.join(input_path, "thalamus_long.h5"))
 
     print("Core cells: %.3f sec" % (time.perf_counter() - start_timer))
 
@@ -245,11 +261,7 @@ def build_input(t_stop=t_stop, n_assemblies=N_ASSEMBLIES):
         start_timer = time.perf_counter()
 
         # Generate Poisson spike trains for shell cells
-        psg = PoissonSpikeGenerator(population='shell', seed=psgseed + 10)
-        constant_fr = False
-
-        shell_fr = {'CP': (1.9, 1.85), 'CS': (1.3, 1.45),
-                    'FSI': (7.5, 6.7), 'LTS': (5.0, 5.9)}
+        psg = PoissonSpikeGenerator(population='shell', seed=psg_seed + 10)
         shell_nodes = get_populations(nodes['shell'], pop_names, only_id=True)
 
         # Select effective nodes in shell that only has connections to core
@@ -271,30 +283,54 @@ def build_input(t_stop=t_stop, n_assemblies=N_ASSEMBLIES):
             node_ids, ratio = effective_cell(node_ids, effective_shell)
             print("%.1f%% effective %s." % (100 * ratio, p))
 
-            if constant_fr:
+            if SHELL_CONSTANT_FR:
                 # Constant mean firing rate for all cells
-                fr = shell_fr[p][0]
+                fr = SHELL_FR[p][0]
                 psg.add(node_ids=node_ids, firing_rate=fr, times=sim_time)
             else:
                 # Lognormal distributed mean firing rate
-                fr = psg_lognormal_fr(psg, node_ids, mean=shell_fr[p][0],
-                                      stdev=shell_fr[p][1], times=sim_time)
+                fr = psg_lognormal_fr(psg, node_ids, mean=SHELL_FR[p][0],
+                                      stdev=SHELL_FR[p][1], times=sim_time)
                 fr_list.append(fr)
 
-        if not constant_fr:
-            fr_file = os.path.join(INPUT_PATH, "Lognormal_FR.csv")
+        if not SHELL_CONSTANT_FR:
+            fr_file = os.path.join(input_path, "Lognormal_FR.csv")
             with open(fr_file, 'w', newline='') as f:
                 writer = csv.writer(f, delimiter=',')
                 writer.writerows(fr_list)
 
-        psg.to_sonata(os.path.join(INPUT_PATH, "shell.h5"))
+        psg.to_sonata(os.path.join(input_path, "shell.h5"))
         print("Shell cells: %.3f sec" % (time.perf_counter() - start_timer))
 
     print("Done!")
 
 
 if __name__ == '__main__':
-    if __file__ != sys.argv[-1]:
-        build_input(*sys.argv[1:])
-    else:
-        build_input()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-stop', '--t_stop', type=float,
+                        nargs='?', default=T_STOP,
+                        help="Simulation stop time", metavar='t_stop')
+    parser.add_argument('-start', '--t_start', type=float,
+                        nargs='?', default=T_START,
+                        help="Simulation start period", metavar='t_start')
+    parser.add_argument('-n', '--n_assemblies', type=int,
+                        nargs='?', default=N_ASSEMBLIES,
+                        help="Number of assemblies", metavar='# Assemblies')
+    parser.add_argument('-net', '--net_seed', type=int,
+                        nargs='?', default=NET_SEED,
+                        help="Network random seed", metavar='Network Seed')
+    parser.add_argument('-psg', '--psg_seed', type=int,
+                        nargs='?', default=PSG_SEED,
+                        help="Poisson generator seed", metavar='PSG Seed')
+    parser.add_argument('-path', '--input_path', type=str, nargs='?', default=INPUT_PATH,
+                        help="Input path", metavar='Input Path')
+    parser.add_argument('-s', '--stimulus', type=str,
+                        nargs="+", default=STIMULUS,
+                        help="List of stimulus types", metavar='Stimulus')
+    args = parser.parse_args()
+
+    global rng
+    rng = np.random.default_rng(args.net_seed)
+    build_input(t_stop=args.t_stop, t_start=args.t_start,
+                n_assemblies=args.n_assemblies, psg_seed=args.psg_seed,
+                input_path=args.input_path, stimulus=args.stimulus)

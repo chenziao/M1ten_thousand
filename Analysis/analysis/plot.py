@@ -8,7 +8,7 @@ import os
 
 from fooof import FOOOF
 from fooof.sim.gen import gen_aperiodic, gen_model
-from build_input import get_populations, get_stim_cycle, t_stop
+from build_input import get_populations, get_stim_cycle, T_STOP
 
 MODEL_PATH = os.path.join('..', 'M1Focus')
 CONFIG = 'config.json'
@@ -136,7 +136,7 @@ def xcorr_coeff(x, y, max_lag=None, dt=1., plot=True, ax=None):
 
 
 def get_seg_on_stimulus(x, fs, on_time, off_time,
-                        t_start, t=t_stop, tseg=None):
+                        t_start, t=T_STOP, tseg=None):
     x = np.asarray(x)
     in_dim = x.ndim
     if in_dim == 1:
@@ -170,7 +170,7 @@ def get_seg_on_stimulus(x, fs, on_time, off_time,
 
 
 def get_psd_on_stimulus(x, fs, on_time, off_time,
-                        t_start, t=t_stop, tseg=None):
+                        t_start, t=T_STOP, tseg=None):
     x_on, nfft, stim_cycle = get_seg_on_stimulus(
         x, fs, on_time, off_time, t_start, t=t, tseg=tseg)
     f, pxx = ss.welch(x_on, fs=fs, window='boxcar', nperseg=nfft, noverlap=0)
@@ -178,7 +178,7 @@ def get_psd_on_stimulus(x, fs, on_time, off_time,
 
 
 def get_coh_on_stimulus(x, y, fs, on_time, off_time,
-                        t_start, t=t_stop, tseg=None):
+                        t_start, t=T_STOP, tseg=None):
     xy = np.array([x, y])
     xy_on, nfft, _ = get_seg_on_stimulus(
         xy, fs, on_time, off_time, t_start, t=t, tseg=tseg)
@@ -224,7 +224,11 @@ def fit_fooof(f, pxx, aperiodic_mode='fixed', dB_threshold=3., max_n_peaks=10,
     fm = FOOOF(peak_width_limits=peak_width_limits, min_peak_height=dB_threshold / 10,
                peak_threshold=0., max_n_peaks=max_n_peaks, aperiodic_mode=aperiodic_mode)
     # Fit the model
-    fm.fit(f, pxx, freq_range)
+    try:
+        fm.fit(f, pxx, freq_range)
+    except Exception as e:
+        fl = np.linspace(f[0], f[-1], int((f[-1] - f[0]) / np.min(np.diff(f))) + 1)
+        fm.fit(fl, np.interp(fl, f, pxx), freq_range)
     results = fm.get_results()
 
     if report:
