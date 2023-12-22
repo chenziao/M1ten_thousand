@@ -24,9 +24,9 @@ off_time = 0.5  # sec. Silence duration
 
 SHELL_FR = {
     'CP': (1.9, 1.8),
-    'CS': (1.3, 1.35),
-    'FSI': (7.5, 6.7),
-    'LTS': (5.0, 5.85)
+    'CS': (1.3, 1.4),
+    'FSI': (7.5, 6.0),
+    'LTS': (5.0, 5.9)
 }  # firing rate of shell neurons (mean, stdev)
 SHELL_CONSTANT_FR = False  # whether use constant firing rate for shell neurons
 
@@ -235,21 +235,21 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
 
     # Constant thalamus input
     if 'const' in stimulus:
-        psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 1)
-        psg = get_psg_long(psg, Thal_assy, [Thal_const_fr] * 2, on_time, off_time,
-                           t_start=t_start, t_stop=t_stop)
+        psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
+        psg = get_psg_long(psg, Thal_assy, [Thal_const_fr] * 2,
+                           on_time, off_time, t_start=t_start, t_stop=t_stop)
         psg.to_sonata(os.path.join(input_path, "thalamus_const.h5"))
 
     # Short burst thalamus input
     if 'short' in stimulus:
-        psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 1)
+        psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
         psg = get_psg_short(psg, Thal_assy, Thal_burst_fr, on_time, off_time,
                             t_start=t_start, t_stop=t_stop)
         psg.to_sonata(os.path.join(input_path, "thalamus_short.h5"))
 
     # Long burst thalamus input
     if 'long' in stimulus:
-        psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 1)
+        psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
         psg = get_psg_long(psg, Thal_assy, Thal_burst_fr, on_time, off_time,
                            t_start=t_start, t_stop=t_stop)
         psg.to_sonata(os.path.join(input_path, "thalamus_long.h5"))
@@ -261,7 +261,7 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
         start_timer = time.perf_counter()
 
         # Generate Poisson spike trains for shell cells
-        psg = PoissonSpikeGenerator(population='shell', seed=psg_seed + 10)
+        psg = PoissonSpikeGenerator(population='shell', seed=psg_seed + 1000)
         shell_nodes = get_populations(nodes['shell'], pop_names, only_id=True)
 
         # Select effective nodes in shell that only has connections to core
@@ -322,14 +322,14 @@ if __name__ == '__main__':
     parser.add_argument('-psg', '--psg_seed', type=int,
                         nargs='?', default=PSG_SEED,
                         help="Poisson generator seed", metavar='PSG Seed')
-    parser.add_argument('-path', '--input_path', type=str, nargs='?', default=INPUT_PATH,
+    parser.add_argument('-path', '--input_path', type=str,
+                        nargs='?', default=INPUT_PATH,
                         help="Input path", metavar='Input Path')
     parser.add_argument('-s', '--stimulus', type=str,
-                        nargs="+", default=STIMULUS,
+                        nargs="*", default=STIMULUS,
                         help="List of stimulus types", metavar='Stimulus')
     args = parser.parse_args()
 
-    global rng
     rng = np.random.default_rng(args.net_seed)
     build_input(t_stop=args.t_stop, t_start=args.t_start,
                 n_assemblies=args.n_assemblies, psg_seed=args.psg_seed,

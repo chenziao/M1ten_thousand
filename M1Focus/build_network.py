@@ -30,7 +30,7 @@ column_width, column_height = 600., 500.
 x_start, x_end = - column_width / 2, column_width / 2
 y_start, y_end = - column_width / 2, column_width / 2
 z_start, z_end = - column_height / 2, column_height / 2
-z_5A = 0.
+z_5A = 0.  # boundary between 5A and 5B
 
 # Distance constraint for all cells
 min_conn_dist = 20.0  # um. PN soma diameter
@@ -1289,7 +1289,7 @@ gap_junc_LTS = CorrelatedGapJunction(
 )
 gap_junc_LTS.setup_nodes(source=population, target=population)
 
-g_gap = 0.00038  # microsiemens
+g_gap = 0.00076  # microsiemens
 conn = net.add_edges(
     is_gap_junction=True, syn_weight=g_gap, target_sections=None,
     afferent_section_id=0, afferent_section_pos=0.5,
