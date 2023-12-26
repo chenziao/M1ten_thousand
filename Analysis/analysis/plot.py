@@ -10,7 +10,8 @@ import os
 import pywt
 from fooof import FOOOF
 from fooof.sim.gen import gen_aperiodic, gen_model
-from build_input import get_populations, get_stim_cycle, T_STOP
+from build_input import get_populations
+from analysis import utils, process
 
 MODEL_PATH = os.path.join('..', 'M1Focus')
 CONFIG = 'config.json'
@@ -74,48 +75,6 @@ def firing_rate_histogram(pop_fr, pop_color, bins=30, min_fr=None,
     return ax
 
 
-def firing_rate(spikes_df, num_cells=None, time_windows=(0.,), frequency=True):
-    """
-    Count number of spikes for each cell.
-    spikes_df: dataframe of node id and spike times (ms)
-    num_cells: number of cells (that determines maximum node id)
-    time_windows: list of time windows for counting spikes (second)
-    frequency: whether return firing frequency in Hz or just number of spikes
-    """
-    if not spikes_df['timestamps'].is_monotonic:
-        spikes_df = spikes_df.sort_values(by='timestamps')
-    if num_cells is None:
-        num_cells = spikes_df['node_ids'].max() + 1
-    time_windows = 1000. * np.asarray(time_windows).ravel()
-    if time_windows.size % 2:
-        time_windows = np.append(time_windows, spikes_df['timestamps'].max())
-    nspk = np.zeros(num_cells, dtype=int)
-    n, N = 0, time_windows.size
-    count = False
-    for t, i in zip(spikes_df['timestamps'], spikes_df['node_ids']):
-        while n < N and t > time_windows[n]:
-            n += 1
-            count = not count
-        if count:
-            nspk[i] = nspk[i] + 1
-    if frequency:
-        nspk = nspk / (total_duration(time_windows) / 1000)
-    return nspk
-
-
-def total_duration(time_windows):
-    return np.diff(np.reshape(time_windows, (-1, 2)), axis=1).sum()
-
-
-def pop_spike_rate(spike_times, time, frequeny=False):
-    t = np.arange(*time)
-    t = np.append(t, t[-1] + time[2])
-    spike_rate, _ = np.histogram(np.asarray(spike_times), t)
-    if frequeny:
-        spike_rate = 1000 / time[2] * spike_rate
-    return spike_rate
-
-
 def xcorr_coeff(x, y, max_lag=None, dt=1., plot=True, ax=None):
     x = np.asarray(x)
     y = np.asarray(y)
@@ -136,59 +95,6 @@ def xcorr_coeff(x, y, max_lag=None, dt=1., plot=True, ax=None):
         ax.set_xlabel('Lag')
         ax.set_ylabel('Cross Correlation')
     return xcorr, xcorr_lags
-
-
-def get_seg_on_stimulus(x, fs, on_time, off_time,
-                        t_start, t=T_STOP, tseg=None):
-    x = np.asarray(x)
-    in_dim = x.ndim
-    if in_dim == 1:
-        x = x.reshape(1, x.size)
-    t = np.asarray(t)
-    t_stop = t.size / fs if t.ndim else t
-    if tseg is None:
-        tseg = on_time # time segment length for PSD (second)
-    t_cycle, n_cycle = get_stim_cycle(on_time, off_time, t_start, t_stop)
-
-    nfft = int(tseg * fs) # steps per segment
-    i_start = int(t_start * fs)
-    i_on = int(on_time * fs)
-    i_cycle = int(t_cycle * fs)
-    nseg_cycle = int(np.ceil(i_on / nfft))
-    x_on = np.zeros((x.shape[0], n_cycle * nseg_cycle * nfft))
-
-    for i in range(n_cycle):
-        m = i_start + i * i_cycle
-        for j in range(nseg_cycle):
-            xx = x[:, m + j * nfft:m + min((j + 1) * nfft, i_on)]
-            n = (i * nseg_cycle + j) * nfft
-            x_on[:, n:n + xx.shape[1]] = xx
-    if in_dim == 1:
-        x_on = x_on.ravel()
-
-    stim_cycle = {'t_cycle': t_cycle, 'n_cycle': n_cycle,
-                  't_start': t_start, 'on_time': on_time,
-                  'i_start': i_start, 'i_cycle': i_cycle}
-    return x_on, nfft, stim_cycle
-
-
-def get_psd_on_stimulus(x, fs, on_time, off_time,
-                        t_start, t=T_STOP, tseg=None, axis=-1):
-    x_on, nfft, stim_cycle = get_seg_on_stimulus(
-        x, fs, on_time, off_time, t_start, t=t, tseg=tseg)
-    f, pxx = ss.welch(x_on, fs=fs, window='boxcar',
-                      nperseg=nfft, noverlap=0, axis=axis)
-    return f, pxx, stim_cycle
-
-
-def get_coh_on_stimulus(x, y, fs, on_time, off_time,
-                        t_start, t=T_STOP, tseg=None):
-    xy = np.array([x, y])
-    xy_on, nfft, _ = get_seg_on_stimulus(
-        xy, fs, on_time, off_time, t_start, t=t, tseg=tseg)
-    f, cxy = ss.coherence(xy_on[0], xy_on[1], fs=fs,
-        window='boxcar', nperseg=nfft, noverlap=0)
-    return f, cxy
 
 
 def plot_stimulus_cycles(t, x, stim_cycle, dv_n_sigma=5., var_label='LFP (mV)',
@@ -451,28 +357,20 @@ def plot(choose, spike_file=None, config=None, figsize=(6.4, 4.8)):
         spike_file = 'output/spikes.h5'
 
     if choose<=2:
-        from bmtool.util import util
-        
-        nodes = util.load_nodes_from_config(config)
-        network_name = 'cortex'
-        cortex_df = nodes[network_name]
+        from bmtool.util.util import load_nodes_from_config
 
-        with h5py.File(spike_file) as f:
-            spikes_df = pd.DataFrame({
-                'node_ids': f['spikes'][network_name]['node_ids'],
-                'timestamps': f['spikes'][network_name]['timestamps']
-            })
-            spikes_df.sort_values(by='timestamps', inplace=True, ignore_index=True)
+        network_name = 'cortex'
+        spikes_df = utils.load_spikes_to_df(spike_file, network_name)
+        node_df = load_nodes_from_config(config)[network_name]
 
     if choose==1:
-        spikes_df['pop_name'] = cortex_df.loc[spikes_df['node_ids'], 'pop_name'].values
+        spikes_df['pop_name'] = node_df.loc[spikes_df['node_ids'], 'pop_name'].values
         pop_spike = get_populations(spikes_df, pop_names)
 
         print("Plotting cortex spike raster")
         _, ax = plt.subplots(1, 1, figsize=figsize)
         raster(pop_spike, pop_color, ax=ax)
         plt.show()
-        #_ = plot_raster(config_file=config, group_by='pop_name')
         return pop_spike
 
     elif choose==2:
@@ -481,16 +379,16 @@ def plot(choose, spike_file=None, config=None, figsize=(6.4, 4.8)):
         conf = bionet.Config.from_json(config)
         t_stop = conf['run']['tstop'] / 1000
 
-        frs = firing_rate(spikes_df, num_cells=len(cortex_df), time_windows=(0., t_stop))
-        cortex_nodes = get_populations(cortex_df, pop_names, only_id=True)
-        pop_fr = {p: frs[nid] for p, nid in cortex_nodes.items()}
+        frs = process.firing_rate(spikes_df, num_cells=len(node_df), time_windows=(0., t_stop))
+        pop_ids = get_populations(node_df, pop_names, only_id=True)
+        pop_fr = {p: frs[nid] for p, nid in pop_ids.items()}
 
         print('Firing rate: mean, std')
         for p, fr in pop_fr.items():
             print(f'{p}: {fr.mean():.3g}, {fr.std():.3g}')
 
         print("Plotting firing rates")
-        min_fr = 0.5 / total_duration((0., t_stop)) # to replace 0 spikes
+        min_fr = 0.5 / process.total_duration((0., t_stop)) # to replace 0 spikes
         _, ax = plt.subplots(1, 1, figsize=figsize)
         firing_rate_histogram(pop_fr, pop_color, bins=20, min_fr=min_fr,
                               logscale=True, stacked=False, ax=ax)

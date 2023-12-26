@@ -12,7 +12,7 @@ x86_64/
 *.zip
 *backup*
 /temp/
-/M1Focus/network/
+/M1Focus/network*/
 /M1Focus/results/
 /M1Focus/input/*.h5
 /M1Focus/output/*.*
