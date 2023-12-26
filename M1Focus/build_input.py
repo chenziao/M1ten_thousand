@@ -1,5 +1,6 @@
 import os
 import csv
+import json
 import time
 import argparse
 
@@ -25,7 +26,7 @@ off_time = 0.5  # sec. Silence duration
 SHELL_FR = {
     'CP': (1.9, 1.8),
     'CS': (1.3, 1.4),
-    'FSI': (7.5, 6.0),
+    'FSI': (7.5, 6.8),
     'LTS': (5.0, 5.9)
 }  # firing rate of shell neurons (mean, stdev)
 SHELL_CONSTANT_FR = False  # whether use constant firing rate for shell neurons
@@ -257,7 +258,7 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
     print("Core cells: %.3f sec" % (time.perf_counter() - start_timer))
 
     # These inputs are for the baseline firing rates of the cells in the shell.
-    if 'shell' in nodes:
+    if 'shell' in nodes and 'baseline' in stimulus:
         start_timer = time.perf_counter()
 
         # Generate Poisson spike trains for shell cells
@@ -302,6 +303,10 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
         psg.to_sonata(os.path.join(input_path, "shell.h5"))
         print("Shell cells: %.3f sec" % (time.perf_counter() - start_timer))
 
+    seeds = {'net_seed': NET_SEED, 'psg_seed': psg_seed}
+    seeds_file = os.path.join(input_path, "random_seeds.json")
+    with open(seeds_file, 'w') as f:
+        json.dump(seeds, f, indent=4)
     print("Done!")
 
 
@@ -330,7 +335,8 @@ if __name__ == '__main__':
                         help="List of stimulus types", metavar='Stimulus')
     args = parser.parse_args()
 
-    rng = np.random.default_rng(args.net_seed)
+    NET_SEED = args.net_seed
+    rng = np.random.default_rng(NET_SEED)
     build_input(t_stop=args.t_stop, t_start=args.t_start,
                 n_assemblies=args.n_assemblies, psg_seed=args.psg_seed,
                 input_path=args.input_path, stimulus=args.stimulus)

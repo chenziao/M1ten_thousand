@@ -14,6 +14,8 @@ x86_64/
 /temp/
 /M1Focus/network*/
 /M1Focus/results/
-/M1Focus/input/*.h5
+/M1Focus/input/*
+!/M1Focus/input/*.csv
+!/M1Focus/input/*.json
 /M1Focus/output/*.*
 /Analysis/simulation_results/
