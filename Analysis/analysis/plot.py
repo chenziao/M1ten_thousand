@@ -15,8 +15,8 @@ from analysis import utils, process
 
 MODEL_PATH = os.path.join('..', 'M1Focus')
 CONFIG = 'config.json'
-pop_color = {'CP': 'blue', 'CS': 'green', 'FSI': 'red', 'LTS': 'purple'}
-pop_color = {p: 'tab:' + clr for p, clr in pop_color.items()}
+pop_color_base = {'CP': 'blue', 'CS': 'green', 'FSI': 'red', 'LTS': 'purple'}
+pop_color = {p: 'tab:' + clr for p, clr in pop_color_base.items()}
 pop_names = list(pop_color.keys())
 
 

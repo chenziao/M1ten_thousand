@@ -355,6 +355,16 @@ def new_file_name(directory, file_name, ext=''):
     return os.path.join(directory, file_name + '_%d' % new_id + ext)
 
 
+def write_std_stim_file(stim_params={}, input_path=INPUT_PATH,
+                        file_name='standard_stimulus.json'):
+    stim_file = os.path.join(input_path, file_name)
+    if os.path.isfile(stim_file):
+        with open(stim_file, 'r') as f:
+            stim_params = {**json.load(f), **stim_params}
+    with open(stim_file, 'w') as f:
+        json.dump(stim_params, f, indent=2)
+
+
 def write_seeds_file(psg_seed=PSG_SEED, net_seed=NET_SEED, stimulus=STIMULUS,
                      input_path=INPUT_PATH, seeds_file_name='random_seeds'):
     seeds_file = os.path.join(input_path, seeds_file_name + '.json')
@@ -415,6 +425,7 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
     ITN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to ITNs
     sim_time = (0, t_stop)  # Whole simulation
 
+    std_stim_params = {}  # parameters for standard stimulus
     # Baseline input
     if 'baseline' in stimulus:
         psg = PoissonSpikeGenerator(population='baseline', seed=psg_seed)
@@ -423,6 +434,8 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
         psg.add(node_ids=Base_nodes['FSI'] + Base_nodes['LTS'],
                 firing_rate=ITN_baseline_fr, times=sim_time)
         psg.to_sonata(os.path.join(input_path, "baseline.h5"))
+        std_stim_params['baseline'] = dict(t_stop=t_stop,
+            PN_firing_rate=PN_baseline_fr, ITN_firing_rate=ITN_baseline_fr)
 
     # Constant thalamus input
     if 'const' in stimulus:
@@ -431,6 +444,7 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
         psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
         psg = get_psg_from_fr(psg, Thal_assy, fr_params)
         psg.to_sonata(os.path.join(input_path, "thalamus_const.h5"))
+        std_stim_params['const'] = dict(t_stop=t_stop, firing_rate=Thal_const_fr)
 
     # Short burst thalamus input
     if 'short' in stimulus:
@@ -439,6 +453,8 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
         psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
         psg = get_psg_from_fr(psg, Thal_assy, fr_params)
         psg.to_sonata(os.path.join(input_path, "thalamus_short.h5"))
+        std_stim_params['short'] = dict(firing_rate=Thal_burst_fr,
+             on_time=on_time, off_time=off_time, t_start=t_start, t_stop=t_stop)
 
     # Long burst thalamus input
     if 'long' in stimulus:
@@ -447,6 +463,10 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
         psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
         psg = get_psg_from_fr(psg, Thal_assy, fr_params)
         psg.to_sonata(os.path.join(input_path, "thalamus_long.h5"))
+        std_stim_params['long'] = dict(firing_rate=Thal_burst_fr,
+             on_time=on_time, off_time=off_time, t_start=t_start, t_stop=t_stop)
+
+    write_std_stim_file(stim_params=std_stim_params, input_path=input_path)
 
     # Ramping thalamus input
     if 'ramp' in stimulus:
