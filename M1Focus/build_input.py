@@ -180,7 +180,7 @@ def get_fr_short(n_assemblies, firing_rate=(0., 0.),
     """Short burst is delivered to each assembly sequentially within each cycle.
     n_assemblies: number of assemblies
     firing_rate: 2-tuple of firing rate at off and on time, respectively
-    on_time, off_time: on / off time durations
+    t_start
     t_start, t_stop: start and stop time of the stimulus cycles
     Return: firing rate traces
     """

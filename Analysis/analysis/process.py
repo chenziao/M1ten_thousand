@@ -3,7 +3,7 @@ import pandas as pd
 import xarray as xr
 import scipy.signal as ss
 
-from build_input import get_populations, get_stim_cycle, T_STOP
+from build_input import get_stim_cycle, T_STOP
 
 
 def get_stim_windows(on_time, off_time, t_start, t_stop=T_STOP, only_on_time=True):
