@@ -37,7 +37,7 @@ class ConfigHelper(object):
             path = abs_path
             abs_path, tail = os.path.split(abs_path)
             if tail == '':
-                raise NotADirectoryError('Root directory not found')
+                raise NotADirectoryError("Root directory not found")
             if self.root_dir_name in tail:
                 break
         return os.path.normpath(path)
@@ -46,7 +46,9 @@ class ConfigHelper(object):
         """Get config attributes from a chain of keys"""
         value = self.config_cwd
         for key in key_chain:
-            value = value[key]
+            value = value.get(key)
+            if value is None:
+                break
         return value
 
     def get_file_cwd(self, file_path):

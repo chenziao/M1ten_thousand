@@ -156,19 +156,22 @@ def get_psg_from_fr(psg, source_assy, params):
     return psg
 
 
-def plot_fr_traces(params, figsize=None, **line_kwargs):
+def plot_fr_traces(params, figsize=(10, 2), **line_kwargs):
     """Plot firing rate traces from parameters for PoissonSpikeGenerator"""
     import matplotlib.pyplot as plt
     n_assemblies = len(params)
-    fig, axs = plt.subplots(n_assemblies, 1, figsize=figsize, squeeze=False)
+    fig, axs = plt.subplots(n_assemblies, 1, squeeze=False,
+                            figsize=(figsize[0], n_assemblies * figsize[1]))
     kwargs = dict(marker='o', markerfacecolor='none')
     kwargs.update(line_kwargs)
-    for p, ax in zip(params, axs.ravel()):
-        fr, t = p['firing_rate'], p['times']
-        ax.plot(t, fr, **kwargs)
+    for i, ax in enumerate(axs.ravel()):
+        p = params[i]
+        t = p['times']
+        ax.plot(t, p['firing_rate'], **kwargs)
         ax.set_ylabel('Firing rate (Hz)')
         ax.set_xlim(t[0], t[-1])
         ax.set_ylim(bottom=0.)
+        ax.set_title(f'Assembly {i:d}')
     ax.set_xlabel('Time (sec)')
     plt.tight_layout()
     return fig, axs
@@ -225,7 +228,7 @@ def get_fr_long(n_assemblies, firing_rate=(0., 0.),
 
 def get_fr_ramp(n_assemblies, firing_rate=(0., 0., 0.),
                 on_time=on_time, off_time=off_time,
-                ramp_on_time=0., ramp_off_time=on_time,
+                ramp_on_time=None, ramp_off_time=None,
                 t_start=T_START, t_stop=T_STOP):
     """Ramping input is delivered to one assembly in each cycle.
     n_assemblies: number of assemblies
@@ -240,8 +243,8 @@ def get_fr_ramp(n_assemblies, firing_rate=(0., 0., 0.),
     firing_rate = np.concatenate((np.zeros(3 - firing_rate.size), firing_rate))
 
     firing_rate = np.repeat(firing_rate, 2)[1:]
-    ramp_off_time = min(ramp_off_time, on_time)
-    ramp_on_time = min(ramp_on_time, ramp_off_time)
+    ramp_off_time = on_time if ramp_off_time is None else min(ramp_off_time, on_time)
+    ramp_on_time = 0. if ramp_on_time is None else min(ramp_on_time, ramp_off_time)
     on_times = (0., ramp_on_time, ramp_off_time, on_time)
     params = get_fr_loop(n_assemblies, firing_rate=firing_rate,
                          on_times=on_times, off_time=off_time,
@@ -287,6 +290,26 @@ def get_fr_loop(n_assemblies, firing_rate=(0., 0., 0.),
             fr = np.append(np.tile(np.insert(firing_rate, 0, fr0), n), [fr0, fr0])
         params.append(dict(firing_rate=fr, times=ts))
     return params
+
+
+def get_std_param(stim_setting={}, stimulus='baseline'):
+    p = stim_setting.get(stimulus)
+    n_assemblies = stim_setting.get('n_assemblies', N_ASSEMBLIES)
+    if stimulus == 'baseline':
+        times = (0, p.get('t_stop', T_STOP))
+        fr_params = [{'firing_rate': p['PN_firing_rate'], 'times': times},
+                     {'firing_rate': p['ITN_firing_rate'], 'times': times}]
+    elif stimulus == 'const':
+        t_stop = p.get('t_stop', T_STOP)
+        fr_params = get_fr_long(n_assemblies, [p['firing_rate']] * 2,
+                                on_time=t_stop, off_time=0., t_stop=t_stop)
+    elif stimulus == 'short':
+        fr_params = get_fr_short(n_assemblies, **p)
+    elif stimulus == 'long':
+        fr_params = get_fr_long(n_assemblies, **p)
+    else:
+        raise ValueError("%s is not standard stimulus type" % stimulus)
+    return fr_params
 
 
 def get_ramp_param(stim_setting={}, **add_default_setting):
@@ -357,12 +380,13 @@ def new_file_name(directory, file_name, ext=''):
 
 def write_std_stim_file(stim_params={}, input_path=INPUT_PATH,
                         file_name='standard_stimulus.json'):
-    stim_file = os.path.join(input_path, file_name)
-    if os.path.isfile(stim_file):
-        with open(stim_file, 'r') as f:
-            stim_params = {**json.load(f), **stim_params}
-    with open(stim_file, 'w') as f:
-        json.dump(stim_params, f, indent=2)
+    if len(stim_params) > 1:
+        stim_file = os.path.join(input_path, file_name)
+        if os.path.isfile(stim_file):
+            with open(stim_file, 'r') as f:
+                stim_params = {**json.load(f), **stim_params}
+        with open(stim_file, 'w') as f:
+            json.dump(stim_params, f, indent=2)
 
 
 def write_seeds_file(psg_seed=PSG_SEED, net_seed=NET_SEED, stimulus=STIMULUS,
@@ -419,52 +443,50 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
     start_timer = time.perf_counter()
 
     # Input firing rates
-    Thal_burst_fr = 50.0  # Hz. Poisson mean firing rate for burst input
-    Thal_const_fr = 10.0  # Hz.
     PN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to PNs
     ITN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to ITNs
-    sim_time = (0, t_stop)  # Whole simulation
+    Thal_burst_fr = 50.0  # Hz. Poisson mean firing rate for burst input
+    Thal_const_fr = 10.0  # Hz.
 
-    std_stim_params = {}  # parameters for standard stimulus
+    std_stim_params = {'n_assemblies': n_assemblies}  # standard stimulus parameters
     # Baseline input
     if 'baseline' in stimulus:
-        psg = PoissonSpikeGenerator(population='baseline', seed=psg_seed)
-        psg.add(node_ids=Base_nodes['CP'] + Base_nodes['CS'],
-                firing_rate=PN_baseline_fr, times=sim_time)
-        psg.add(node_ids=Base_nodes['FSI'] + Base_nodes['LTS'],
-                firing_rate=ITN_baseline_fr, times=sim_time)
-        psg.to_sonata(os.path.join(input_path, "baseline.h5"))
         std_stim_params['baseline'] = dict(t_stop=t_stop,
             PN_firing_rate=PN_baseline_fr, ITN_firing_rate=ITN_baseline_fr)
+        fr_params = get_std_param(std_stim_params, 'baseline')
+        psg = PoissonSpikeGenerator(population='baseline', seed=psg_seed)
+        psg = get_psg_from_fr(psg, [Base_nodes['CP'] + Base_nodes['CS'],
+            Base_nodes['FSI'] + Base_nodes['LTS']], fr_params)
+        psg.to_sonata(os.path.join(input_path, "baseline.h5"))
 
     # Constant thalamus input
     if 'const' in stimulus:
-        fr_params = get_fr_long(n_assemblies, [Thal_const_fr] * 2,
-            on_time=on_time, off_time=off_time, t_start=t_start, t_stop=t_stop)
+        std_stim_params['const'] = dict(t_stop=t_stop, firing_rate=Thal_const_fr)
+        fr_params = get_std_param(std_stim_params, 'const')
         psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
         psg = get_psg_from_fr(psg, Thal_assy, fr_params)
         psg.to_sonata(os.path.join(input_path, "thalamus_const.h5"))
-        std_stim_params['const'] = dict(t_stop=t_stop, firing_rate=Thal_const_fr)
+        
 
     # Short burst thalamus input
     if 'short' in stimulus:
-        fr_params = get_fr_short(n_assemblies, Thal_burst_fr,
+        std_stim_params['short'] = dict(firing_rate=Thal_burst_fr,
             on_time=on_time, off_time=off_time, t_start=t_start, t_stop=t_stop)
+        fr_params = get_std_param(std_stim_params, 'short')
         psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
         psg = get_psg_from_fr(psg, Thal_assy, fr_params)
         psg.to_sonata(os.path.join(input_path, "thalamus_short.h5"))
-        std_stim_params['short'] = dict(firing_rate=Thal_burst_fr,
-             on_time=on_time, off_time=off_time, t_start=t_start, t_stop=t_stop)
+
 
     # Long burst thalamus input
     if 'long' in stimulus:
-        fr_params = get_fr_long(n_assemblies, Thal_burst_fr,
+        std_stim_params['long'] = dict(firing_rate=Thal_burst_fr,
             on_time=on_time, off_time=off_time, t_start=t_start, t_stop=t_stop)
+        fr_params = get_std_param(std_stim_params, 'long')
         psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
         psg = get_psg_from_fr(psg, Thal_assy, fr_params)
         psg.to_sonata(os.path.join(input_path, "thalamus_long.h5"))
-        std_stim_params['long'] = dict(firing_rate=Thal_burst_fr,
-             on_time=on_time, off_time=off_time, t_start=t_start, t_stop=t_stop)
+
 
     write_std_stim_file(stim_params=std_stim_params, input_path=input_path)
 
@@ -508,11 +530,11 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
             if SHELL_CONSTANT_FR:
                 # Constant mean firing rate for all cells
                 psg.add(node_ids=effective_ids,
-                        firing_rate=fr['mean'], times=sim_time)
+                        firing_rate=fr['mean'], times=(0, t_stop))
             else:
                 # Lognormal distributed mean firing rate
                 fr_list.append(psg_lognormal_fr(psg, effective_ids,
-                    mean=fr['mean'], stdev=fr['stdev'], times=sim_time))
+                    mean=fr['mean'], stdev=fr['stdev'], times=(0, t_stop)))
 
         SHELL_FR.to_csv(os.path.join(input_path, "Shell_FR_stats.csv"))
         if not SHELL_CONSTANT_FR:

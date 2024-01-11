@@ -343,6 +343,72 @@ def plot_spectrogram(sxx_xarray, remove_aperiodic=None, log_power=False,
     return sxx
 
 
+def trajectory_pairplot(data, time=None, xlabels=None, ylabels=None,
+                        marker_times=[], marker_names=[], marker_props={},
+                        traj_props={'color': 'b'}, diag_props={'color': 'r'},
+                        figsize=(3, 2.5)):
+    time = next(data.values()).time.values if time is None else np.asarray(time)
+    xlabels = list(data.keys()) if xlabels is None else list(xlabels)
+    ylabels = xlabels if ylabels is None else list(ylabels)
+    if not all([L in data for L in xlabels + ylabels]):
+        print(set(xlabels + ylabels) - data.keys())
+        raise ValueError("The above labels not found in data")
+    data = {k: np.asarray(v) for k, v in data.items()}
+    marker_times = np.clip(marker_times, time[0], time[-1])
+    if len(marker_names) != marker_times.size:
+        raise ValueError("The size of marker_names does not match marker_names")
+    marker_props = {'linestyle': 'none', 'marker': 'o', 'markersize': 10,
+                    'markerfacecolor': 'none', **marker_props}
+    for k, v in marker_props.items():
+        if isinstance(v, (tuple, list)):
+            if len(v) != marker_times.size:
+                raise ValueError(f"The length of property {k:s} does not match"
+                                 " the number of markers")
+        else:
+            marker_props[k] = [v] * marker_times.size
+    marker_props = [{k: v[m] for k, v in marker_props.items()}
+                    for m in range(marker_times.size)]
+    marker_locs = {k: np.interp(marker_times, time, v) for k, v in data.items()}
+
+    nrow, ncol = len(ylabels), len(xlabels)
+    _, axs = plt.subplots(nrow, ncol, squeeze=False,
+                        figsize=(ncol * figsize[0], nrow * figsize[1]))
+    xlim, ylim = np.empty((ncol, 2)), np.empty((nrow, 2))
+    xlim[:, 0], xlim[:, 1] = -np.inf, np.inf
+    ylim[:, 0], ylim[:, 1] = -np.inf, np.inf
+    for i, yl in enumerate(ylabels):
+        y = data[yl]
+        my = marker_locs[yl]
+        for j, xl in enumerate(xlabels):
+            x = data[xl]
+            ax = axs[i, j]
+            if xl == yl:
+                mx = marker_times
+                ax.plot(time, y, **diag_props)
+                ax.text(.5, 0.02,'Time (ms)', transform=ax.transAxes,
+                        horizontalalignment='center', verticalalignment='bottom')
+            else:
+                mx = marker_locs[xl]
+                ax.plot(x, y, **traj_props)
+                xlim[j] = np.clip(xlim[j], *ax.get_xlim())
+                ylim[i] = np.clip(ylim[i], *ax.get_ylim())
+            for m in range(marker_times.size):
+                ax.plot(mx[m], my[m], label=marker_names[m], **marker_props[m])
+
+    for xl, ax in zip(xlabels, axs[-1, :]):
+        ax.set_xlabel(xl)
+    for yl, ax in zip(ylabels, axs[:, 0]):
+        ax.set_ylabel(yl)
+    for i, yl in enumerate(ylabels):
+        for j, xl in enumerate(xlabels):
+            axs[i, j].set_ylim(ylim[i])
+            if xl != yl:
+                axs[i, j].set_xlim(xlim[j])
+    axs[0, 0].legend(loc='upper right', framealpha=0.2)
+    plt.tight_layout()
+    return axs
+
+
 def plot(choose, spike_file=None, config=None, figsize=(6.4, 4.8)):
 
     global CONFIG

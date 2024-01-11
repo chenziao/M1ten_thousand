@@ -6,13 +6,13 @@ import scipy.signal as ss
 from build_input import get_stim_cycle, T_STOP
 
 
-def get_stim_windows(on_time, off_time, t_start, t_stop=T_STOP, only_on_time=True):
+def get_stim_windows(on_time, off_time, t_start, t_stop=T_STOP, win_extend=0):
     """Time windows of stimulus cycles
-    only_on_time: whether include only on time in the window or also off time
+    win_extend: extend the window after off time
     Return: 2d-array of time windows, each row is the start/end (sec) of a cycle
     """
     t_cycle, n_cycle = get_stim_cycle(on_time, off_time, t_start, t_stop)
-    window =  np.array([0, on_time + (0 if only_on_time else off_time)])
+    window =  np.array([0, on_time + win_extend])
     windows = t_start + window + t_cycle * np.arange(n_cycle)[:, None]
     if windows[-1, 1] > t_stop:
         windows = windows[:-1]
@@ -123,7 +123,7 @@ def total_duration(time_windows):
     return np.diff(np.reshape(time_windows, (-1, 2)), axis=1).sum()
 
 
-def pop_spike_rate(spike_times, time=None, time_points=False, frequeny=False):
+def pop_spike_rate(spike_times, time=None, time_points=None, frequeny=False):
     """Count spike histogram
     spike_times: spike times
     time: tuple of (start, stop, step)
@@ -144,12 +144,12 @@ def pop_spike_rate(spike_times, time=None, time_points=False, frequeny=False):
 
 
 def group_spike_rate_to_xarray(spikes_df, time, group_ids,
-                               group_dims=['population', 'assembly']):
+                               group_dims=['assembly', 'population']):
     """Convert spike times into spike rate of neuron groups in xarray dataset
     spikes_df: dataframe of node ids and spike times
     time: left edges of time bins
     group_ids: dictionary of {group index: group ids}
-    group_dims: dimensions in group index. Defaults to ['population', 'assembly']
+    group_dims: dimensions in group index. Defaults to ['assembly', 'population']
     """
     time = np.asarray(time)
     fs = 1000 * (time.size - 1) / (time[-1] - time[0])
