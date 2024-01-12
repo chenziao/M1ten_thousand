@@ -12,13 +12,13 @@ STIMULUS_CONFIG = {
     'long': 'config_long.json',
     'const': 'config_const.json',
     'ramp': 'config.json',
+    'join': 'config.json',
     'else': 'config.json'
 }
 
 def stimulus_type_from_trial_name(trial_name):
     stim_type = next(s for s in trial_name.split('_') if s in STIMULUS_CONFIG)
-    config_file = STIMULUS_CONFIG.get(stim_type, STIMULUS_CONFIG['else'])
-    return stim_type, config_file
+    return stim_type, STIMULUS_CONFIG[stim_type]
 
 
 class ConfigHelper(object):

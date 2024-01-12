@@ -252,6 +252,64 @@ def get_fr_ramp(n_assemblies, firing_rate=(0., 0., 0.),
     return params
 
 
+def get_fr_join(n_assemblies, firing_rate=(0., 0.),
+                on_time=on_time, off_time=off_time,
+                t_start=T_START, t_stop=T_STOP, n_steps=20,):
+    """Input is delivered to an increasing portion of one assembly in each cycle.
+    n_assemblies: number of assemblies
+    firing_rate: 2-tuple of firing rate at off and on time, respectively
+    on_time, off_time: on / off time durations
+    t_start, t_stop: start and stop time of the stimulus cycles
+    n_steps: number of steps to divide up each assembly. By each step, an equal
+        portion of neurons in each assembly join to receive input.
+    Return: firing rate traces (of all n_steps in each assembly)
+    """
+    firing_rate = np.asarray(firing_rate).ravel()[:2]
+    firing_rate = np.concatenate((np.zeros(2 - firing_rate.size), firing_rate))
+
+    firing_rate = np.repeat(firing_rate, 3)[:-1]
+    t_offset = np.linspace(0., on_time, n_steps, endpoint=False)
+    params = [fr for t in t_offset for fr in get_fr_loop(
+        n_assemblies, firing_rate=firing_rate, on_times=(0., t, t, on_time),
+        off_time=off_time, t_start=t_start, t_stop=t_stop)]
+    params = [fr for i in range(n_assemblies) for fr in params[i::n_assemblies]]
+    return params
+
+
+def get_join_split(size_assemblies, n_steps=20,
+                   start_portion=0., end_portion=1., seed=None):
+    """Split each assembly into equal steps for join stimulus
+    size_assemblies: list of size of each of all assemblies
+    n_steps: number of steps to divide up each assembly
+    start_portion, end_portion: the proportion of neurons in an assembly that
+        join at the start/end of a stimulus cycle
+    seed: random seed for the split. If not specified, join in original order
+    Return: nested lists of indices in each step in each assembly
+    """
+    ratio = np.full(n_steps, (end_portion - start_portion) / n_steps)
+    ratio[0] += start_portion
+    split_ids = []
+    if seed is not None:
+        rng_tmp = np.random.default_rng(seed)  # shuffle ids in each assembly
+    for n in size_assemblies:
+        assy_ids = np.arange(n) if seed is None else rng_tmp.permutation(n)  
+        n_per_step = num_prop(ratio, n * end_portion)  # split into steps
+        split_idx = np.cumsum(n_per_step)  # indices at which to split
+        split_ids.append(np.split(assy_ids, split_idx)[:-1])
+    if seed is not None:
+        split_ids = [[np.sort(i) for i in idx] for idx in split_ids]
+    return split_ids
+
+
+def split_join_assemblies(node_ids, split_ids):
+    """Split the node ids for join stimulus and concatenate in a single list"""
+    join_ids = []
+    for ids, idx in zip(node_ids, split_ids):
+        for i in idx:
+            join_ids.append(np.asarray(ids)[np.asarray(i)])
+    return join_ids
+
+
 def get_fr_loop(n_assemblies, firing_rate=(0., 0., 0.),
                 on_times=(on_time, ), off_time=off_time,
                 t_start=T_START, t_stop=T_STOP):
@@ -262,7 +320,7 @@ def get_fr_loop(n_assemblies, firing_rate=(0., 0., 0.),
     firing_rate: tuple of firing rate at off time followed by those at on time
     on_times: time points corresponding to firing rates during on time
         The smallest in on_times should be 0.
-        The largest in on_times determines on time duration.
+        The largest in on_times determines the on time duration.
     off_time: off time duration
     t_start, t_stop: start and stop time of the stimulus cycles
     Return: firing rate traces
@@ -293,6 +351,11 @@ def get_fr_loop(n_assemblies, firing_rate=(0., 0., 0.),
 
 
 def get_std_param(stim_setting={}, stimulus='baseline'):
+    """Generater parameters for standard stimulus from settings
+    stim_setting: dictionary of standard stimulus settings
+    stimulus: stimulus type name
+    Return: firing rate traces
+    """
     p = stim_setting.get(stimulus)
     n_assemblies = stim_setting.get('n_assemblies', N_ASSEMBLIES)
     if stimulus == 'baseline':
@@ -327,15 +390,56 @@ def get_ramp_param(stim_setting={}, **add_default_setting):
     )
     default_setting.update(add_default_setting)
     setting = {**default_setting, **stim_setting.get('setting', {})}
+    assembly_index = setting['assembly_index']
 
-    stim_params_keys = ('firing_rate', 'on_time', 'off_time', 't_start')
-    stim_params = {k: setting[k] for k in stim_params_keys}
+    stim_params_keys = ['firing_rate', 'on_time', 'off_time', 't_start']
+    stim_params = {k: setting[k] for k in stim_params_keys if k in setting}
     stim_params['t_stop'] = setting['t_start'] + setting['n_cycles'] \
         * (setting['on_time'] + setting['off_time'])
-    fr_params = get_fr_ramp(len(setting['assembly_index']), **stim_params)
+    fr_params = get_fr_ramp(len(assembly_index), **stim_params)
 
     stim_setting = {'setting': setting, 'stim_params': stim_params}
     return fr_params, stim_setting
+
+
+def get_join_param(stim_setting={}, size_assemblies=[], **add_default_setting):
+    """Generater parameters for join stimulus from settings 
+    stim_setting: dictionary of stimulus settings and parameters
+    size_assemblies: list of size of each of all assemblies
+    add_default_setting: additional default parameters
+    Return: firing rate traces, stimulus setting and parameters
+    """
+    default_setting = dict(
+        assembly_index = [0],
+        n_cycles = n_cycles_expr,
+        on_time = on_time,
+        off_time = off_time_expr,
+        t_start = t_start,
+        n_steps = 20,
+        seed = None,
+    )
+    default_setting.update(add_default_setting)
+    setting = {**default_setting, **stim_setting.get('setting', {})}
+    assembly_index = setting['assembly_index']
+
+    stim_params_keys = ['firing_rate', 'on_time', 'off_time', 't_start',
+                        'n_steps']
+    stim_params = {k: setting[k] for k in stim_params_keys if k in setting}
+    stim_params['t_stop'] = setting['t_start'] + setting['n_cycles'] \
+        * (setting['on_time'] + setting['off_time'])
+    fr_params = get_fr_join(len(assembly_index), **stim_params)
+
+    split_params_keys = ['n_steps', 'start_portion', 'end_portion', 'seed']
+    split_params = {k: setting[k] for k in split_params_keys if k in setting}
+    if max(assembly_index) < len(size_assemblies):
+        size_assemblies = np.asarray(size_assemblies)[assembly_index]
+        split_ids = get_join_split(size_assemblies, **split_params)
+    else:
+        split_ids = None
+
+    stim_setting = {'setting': setting, 'stim_params': stim_params,
+                    'split_params': split_params}
+    return fr_params, stim_setting, split_ids
 
 
 def load_stim_file(input_path=INPUT_PATH, stim_file=None, file_name=''):
@@ -373,8 +477,8 @@ def new_file_name(directory, file_name, ext=''):
     file_list = [os.path.splitext(s) for s in os.listdir(directory)]
     file_list = [s[0] for s in file_list if s[1] == ext and file_name in s[0]]
     ids = [s.replace(file_name, '').rsplit('_', 1) for s in file_list]
-    ids = {int(s[1]) for s in ids if len(s) == 2 and not s[0] and s[1].isdigit()}
-    new_id = next(i for i in range(max(ids)) if i not in ids)
+    ids = [int(s[1]) for s in ids if len(s) == 2 and not s[0] and s[1].isdigit()]
+    new_id = max(ids + [-1]) + 1
     return os.path.join(directory, file_name + '_%d' % new_id + ext)
 
 
@@ -401,12 +505,16 @@ def write_seeds_file(psg_seed=PSG_SEED, net_seed=NET_SEED, stimulus=STIMULUS,
                             and s['psg_seed'] == psg_seed]
     if seed:
         seed = seed[0]
-        seed['stimulus'] = list(set(seed['stimulus']) | set(stimulus))
+        stimulus_new = [s for s in stimulus if s not in seed['stimulus']]
+        seed['stimulus'] += stimulus_new
+        overwrite = bool(stimulus_new)
     else:
         seed = dict(net_seed=net_seed, psg_seed=psg_seed, stimulus=stimulus)
         seeds.append(seed)
-    with open(seeds_file, 'w') as f:
-        json.dump(seeds, f, indent=2)
+        overwrite = True
+    if overwrite:
+        with open(seeds_file, 'w') as f:
+            json.dump(seeds, f, indent=2)
 
 
 def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
@@ -487,7 +595,6 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
         psg = get_psg_from_fr(psg, Thal_assy, fr_params)
         psg.to_sonata(os.path.join(input_path, "thalamus_long.h5"))
 
-
     write_std_stim_file(stim_params=std_stim_params, input_path=input_path)
 
     # Ramping thalamus input
@@ -496,12 +603,27 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
             stim_file=stim_files.get('ramp', None), file_name='thalamus_ramp')
         fr_params, stim_setting = get_ramp_param(stim_setting=stim_setting,
             firing_rate=1.5 * Thal_burst_fr)
-        with open(stim_file, 'w') as f:
-            json.dump(stim_setting, f, indent=2)
         assy_idx = stim_setting['setting']['assembly_index']
         psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
         psg = get_psg_from_fr(psg, [Thal_assy[i] for i in assy_idx], fr_params)
         psg.to_sonata(stim_file.replace('.json', '.h5'))
+        with open(stim_file, 'w') as f:
+            json.dump(stim_setting, f, indent=2)
+
+    # Joining thalamus input
+    if 'join' in stimulus:
+        stim_setting, stim_file = load_stim_file(input_path=input_path,
+            stim_file=stim_files.get('join', None), file_name='thalamus_join')
+        fr_params, stim_setting, split_ids = get_join_param(
+            stim_setting=stim_setting, size_assemblies=[*map(len, Thal_assy)],
+            firing_rate=1.5 * Thal_burst_fr, seed=psg_seed + 200)
+        assy_idx = stim_setting['setting']['assembly_index']
+        psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
+        psg = get_psg_from_fr(psg, split_join_assemblies(
+            [Thal_assy[i] for i in assy_idx], split_ids), fr_params)
+        psg.to_sonata(stim_file.replace('.json', '.h5'))
+        with open(stim_file, 'w') as f:
+            json.dump(stim_setting, f, indent=2)
 
     print("Core cells: %.3f sec" % (time.perf_counter() - start_timer))
 
@@ -579,15 +701,20 @@ if __name__ == '__main__':
                         "e.g. stim1 file1 stim2 file2")
     args = parser.parse_args()
 
+    stimulus = args.stimulus
     stim_files = args.stim_files
     if len(stim_files) % 2:
-        raise ValueError("Number of keys and values in stim_files should match")
-    stim_files = dict(zip(stim_files[::2], stim_files[1::2]))
+        if len(stim_files) == 1 and len(stimulus) == 1:
+            stim_files = {stimulus[0]: stim_files[0]}
+        else:
+            raise ValueError("Number of keys and values in stim_files should match")
+    else:
+        stim_files = dict(zip(stim_files[::2], stim_files[1::2]))
 
     NET_SEED = args.net_seed
     rng = np.random.default_rng(NET_SEED)
 
     build_input(t_stop=args.t_stop, t_start=args.t_start,
                 n_assemblies=args.n_assemblies, psg_seed=args.psg_seed,
-                input_path=args.input_path, stimulus=args.stimulus,
-                stim_files=stim_files)
+                input_path=args.input_path,
+                stimulus=stimulus, stim_files=stim_files)
