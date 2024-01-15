@@ -8,6 +8,7 @@ import os
 import pywt
 from fooof import FOOOF
 from fooof.sim.gen import gen_aperiodic, gen_model
+from matplotlib.patches import FancyArrowPatch, ArrowStyle
 from build_input import get_populations
 from analysis import utils, process
 
@@ -282,7 +283,7 @@ def cwt_spectrogram_xarray(x, fs, axis=-1, downsample_fs=None, channel_coords=No
     if channel_coords is None:
         channel_coords = {f'dim_{i:d}': range(d) for i, d in enumerate(sxx.shape[:-2])}
     sxx = xr.DataArray(sxx, coords={**channel_coords, 'frequency': f, 'time': t}).to_dataset(name='PSD')
-    sxx = sxx.assign(cone_of_influence_frequency=xr.DataArray(coif, coords={'time': t}))
+    sxx.update(dict(cone_of_influence_frequency=xr.DataArray(coif, coords={'time': t})))
     return sxx
 
 
@@ -343,10 +344,13 @@ def plot_spectrogram(sxx_xarray, remove_aperiodic=None, log_power=False,
     return sxx
 
 
+ARROWSTYLE = ArrowStyle('->, head_length=1, head_width=0.5')
+ARROWPROPS = dict(shrinkA=0, shrinkB=0, mutation_scale=10)
+
 def trajectory_pairplot(data, time=None, xlabels=None, ylabels=None,
                         marker_times=[], marker_names=[], marker_props={},
-                        traj_props={'color': 'b'}, diag_props={'color': 'r'},
-                        figsize=(3, 2.5)):
+                        traj_props={}, diag_props={}, arrow_props={},
+                        arrow_loc=(0.45, 0.55), figsize=(3, 2.5)):
     time = next(data.values()).time.values if time is None else np.asarray(time)
     xlabels = list(data.keys()) if xlabels is None else list(xlabels)
     ylabels = xlabels if ylabels is None else list(ylabels)
@@ -354,6 +358,10 @@ def trajectory_pairplot(data, time=None, xlabels=None, ylabels=None,
         print(set(xlabels + ylabels) - data.keys())
         raise ValueError("The above labels not found in data")
     data = {k: np.asarray(v) for k, v in data.items()}
+    traj_props = {'color': 'b', **traj_props}
+    diag_props = {'color': 'r', **diag_props}
+    arrow_props = {'color': traj_props['color'], **arrow_props}
+
     marker_times = np.clip(marker_times, time[0], time[-1])
     if len(marker_names) != marker_times.size:
         raise ValueError("The size of marker_names does not match marker_names")
@@ -369,6 +377,10 @@ def trajectory_pairplot(data, time=None, xlabels=None, ylabels=None,
     marker_props = [{k: v[m] for k, v in marker_props.items()}
                     for m in range(marker_times.size)]
     marker_locs = {k: np.interp(marker_times, time, v) for k, v in data.items()}
+    frac = np.asarray(arrow_loc)
+    arrow_times = np.sort(marker_times)[:, None]
+    arrow_times = frac * arrow_times[1:] + (1 - frac) * arrow_times[:-1]
+    arrow_locs = {k: np.interp(arrow_times, time, v) for k, v in data.items()}
 
     nrow, ncol = len(ylabels), len(xlabels)
     _, axs = plt.subplots(nrow, ncol, squeeze=False,
@@ -379,6 +391,7 @@ def trajectory_pairplot(data, time=None, xlabels=None, ylabels=None,
     for i, yl in enumerate(ylabels):
         y = data[yl]
         my = marker_locs[yl]
+        a_y = arrow_locs[yl]
         for j, xl in enumerate(xlabels):
             x = data[xl]
             ax = axs[i, j]
@@ -389,7 +402,11 @@ def trajectory_pairplot(data, time=None, xlabels=None, ylabels=None,
                         horizontalalignment='center', verticalalignment='bottom')
             else:
                 mx = marker_locs[xl]
+                a_x = arrow_locs[xl]
                 ax.plot(x, y, **traj_props)
+                for k in range(len(arrow_times)):
+                    ax.add_patch(FancyArrowPatch(*np.vstack((a_x[k], a_y[k])).T,
+                        arrowstyle=ARROWSTYLE, **ARROWPROPS, **arrow_props))
                 xlim[j] = np.clip(xlim[j], *ax.get_xlim())
                 ylim[i] = np.clip(ylim[i], *ax.get_ylim())
             for m in range(marker_times.size):

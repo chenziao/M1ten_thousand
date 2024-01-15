@@ -174,10 +174,12 @@ def group_spike_rate_to_xarray(spikes_df, time, group_ids,
     return grp_rspk
 
 
-def combine_spike_rate(grp_rspk, dim, index=slice(None)):
+def combine_spike_rate(grp_rspk, dim, variables=None, index=slice(None)):
     """Combine spike rate of neuron groups into a new xarray dataset
     grp_rspk: xarray dataset of group spike rate
     dim: group dimension(s) along which to combine
+    variables: list of names of variables to combine
+        If not specified, apply to all variables except `population_number`
     index: slice or indices of selected groups to combine. Defaults to all
     """
     if not isinstance(dim, list):
@@ -186,11 +188,15 @@ def combine_spike_rate(grp_rspk, dim, index=slice(None)):
     elif isinstance(index, slice):
         index = [index] * len(dim)
     grp_rspk = grp_rspk.sel(**dict(zip(dim, index)))
-    rspk_weighted = grp_rspk.spike_rate.weighted(grp_rspk.population_number)
-    combined_rspk = rspk_weighted.mean(dim=dim).to_dataset(name='spike_rate')
-    combined_rspk = combined_rspk.assign_attrs(**grp_rspk.attrs).assign(
-        population_number = grp_rspk.population_number.sum(dim=dim)
-    )
+    if variables is None:
+        variables = [var for var in grp_rspk if var != 'population_number']
+    combined_rspk = xr.Dataset()
+    for var in variables:
+        rspk_weighted = grp_rspk[var].weighted(grp_rspk.population_number)
+        combined_rspk.update({var: rspk_weighted.mean(dim=dim)})
+    combined_rspk.update(dict(
+        population_number=grp_rspk.population_number.sum(dim=dim)))
+    combined_rspk.attrs.update(**grp_rspk.attrs)
     return combined_rspk
 
 

@@ -1,7 +1,7 @@
 {
   "n_assemblies": 10,
   "baseline": {
-    "t_stop": 41.0,
+    "t_stop": 51.0,
     "PN_firing_rate": 20.0,
     "ITN_firing_rate": 20.0
   }

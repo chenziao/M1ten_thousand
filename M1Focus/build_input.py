@@ -543,6 +543,8 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
         Thal_nodes = df2node_id(nodes['thalamus'])
         Thal_assy, PN_assy = get_assembly(Thal_nodes, Cortex_nodes, n_assemblies)
         input_pairs_to_file(assembly_id_file, Thal_assy, PN_assy)
+    elif 'baseline' in stimulus:
+        raise ValueError("Use nonzero `n_assemblies` when building baseline")
     else:
         Thal_assy, _ = input_pairs_from_file(assembly_id_file)
         n_assemblies = len(Thal_assy)
