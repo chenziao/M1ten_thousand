@@ -242,11 +242,11 @@ def cwt_spectrogram(x, fs, nNotes=6, nOctaves=np.inf, freq_range=(0, np.inf),
     # min = 2 (Nyquist frequency)
     # max = np.floor(N/2)
     nOctaves = min(nOctaves, np.log2(2 * np.floor(N / 2)))
-    scales = 2 ** (1 + np.arange(np.floor(nOctaves * nNotes)) / nNotes)
+    scales = 2 ** np.arange(1, nOctaves, 1 / nNotes)
     # cwt and the frequencies used. 
-    # Use the complex morelet with bw=2*bandwidth and center frequency of 1.0
-    # bandwidth is the sigma of the gaussian envelope
-    wavelet = 'cmor' + str(2 * bandwidth) + '-1.0'
+    # Use the complex morelet with bw=2*bandwidth^2 and center frequency of 1.0
+    # bandwidth is sigma of the gaussian envelope
+    wavelet = 'cmor' + str(2 * bandwidth ** 2) + '-1.0'
     frequencies = pywt.scale2frequency(wavelet, scales) * fs
     scales = scales[(frequencies >= freq_range[0]) & (frequencies <= freq_range[1])]
     coef, frequencies = pywt.cwt(x, scales[::-1], wavelet=wavelet, sampling_period=1 / fs, axis=axis)

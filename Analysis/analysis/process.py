@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import scipy.signal as ss
+import pywt
 
 from build_input import get_stim_cycle, T_STOP
 
@@ -37,7 +38,7 @@ def get_seg_on_stimulus(x, fs, on_time, off_time,
     fs: sampling frequency (Hz)
     on_time, off_time: on / off time durations
     t_start, t: start and stop time of the stimulus cycles
-        If t is an array of time points, the last point is used as stop time
+        If t is an array of time points, the array size is used to infer stop time
     tseg: time segment length. Defaults to on_time if not specified
     Return:
         x_on: same number of dimensions as input, time segments concatenated
@@ -241,8 +242,58 @@ def average_group_windows(win_da, win_dim='cycle', grp_dim='unique_cycle'):
     win_dim: dimension for different windows
     grp_dim: dimension along which to stack average of window groups 
     """
-    win_avg = {g: x.mean(dim=win_dim) for g, x in win_da.items()}
-    win_avg = xr.concat(win_avg.values(),
-                        dim=pd.Index(win_avg.keys(), name=grp_dim))
+    win_avg = {g: xr.concat([x.mean(dim=win_dim), x.std(dim=win_dim)],
+                            pd.Index(('mean_', 'std_'), name='stats'))
+               for g, x in win_da.items()}
+    win_avg = xr.concat(win_avg.values(), dim=pd.Index(win_avg.keys(), name=grp_dim))
+    win_avg = win_avg.to_dataset(dim='stats')
     return win_avg
 
+
+def get_windowed_data(x, windows, win_grp_idx, dim='time',
+                      win_dim='cycle', win_coord=None, grp_dim='unique_cycle'):
+    """Apply functions of windowing to data
+    x: DataArray
+    windows: `windows` for `windowed_xarray`
+    win_grp_idx: `win_grp_idx` for `group_windows`
+    dim: dimension along which to divide
+    win_dim: dimension for different windows
+    win_coord: pandas Index object of `win_dim` coordinates
+    grp_dim: dimension along which to stack average of window groups.
+        If None or empty or False, do not calculate average.
+    Return: data returned by three functions,
+        `windowed_xarray`, `group_windows`, `average_group_windows`
+    """
+    x_win = windowed_xarray(x, windows, dim=dim,
+                            new_coord_name=win_dim, new_coord=win_coord)
+    x_win_onff = group_windows(x_win, win_grp_idx, win_dim=win_dim)
+    if grp_dim:
+        x_win_avg = [average_group_windows(x, win_dim=win_dim, grp_dim=grp_dim)
+                     for x in x_win_onff]
+    else:
+        x_win_avg = None
+    return x_win, x_win_onff, x_win_avg
+
+
+def wave_hilbert(x, freq_band, fs, filt_order=2, axis=-1):
+    sos = ss.butter(N=filt_order, Wn=freq_band, btype='bandpass', fs=fs, output='sos')
+    x_a = ss.hilbert(ss.sosfiltfilt(sos, x, axis=axis), axis=axis)
+    return x_a
+
+
+def wave_cwt(x, freq, fs, bandwidth=1.0, axis=-1):
+    wavelet = 'cmor' + str(2 * bandwidth ** 2) + '-1.0'
+    x_a = pywt.cwt(x, fs / freq, wavelet=wavelet, axis=axis)[0][0]
+    return x_a
+
+
+def get_waves(da, fs, waves, transform, dim='time', component='amp', **kwargs):
+    x = [xr.zeros_like(da) for _ in range(len(waves))]
+    axis = da.dims.index(dim)
+    comp_funcs = {'amp': np.abs, 'pha': np.angle}
+    comp_func = comp_funcs.get(component, comp_funcs['amp'])
+    for i, freq in enumerate(waves.values()):
+        x_a = transform(da.values, freq, fs, axis=axis, **kwargs)
+        x[i][:] = comp_func(x_a)
+    x = xr.concat(x, dim=pd.Index(waves.keys(), name='wave'))
+    return x
