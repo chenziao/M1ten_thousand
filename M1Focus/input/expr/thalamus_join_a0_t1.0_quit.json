@@ -1,0 +1,30 @@
+{
+  "setting": {
+    "assembly_index": [
+      0
+    ],
+    "n_cycles": 10,
+    "on_time": 1.5,
+    "off_time": 1.0,
+    "t_start": 1.0,
+    "n_steps": 20,
+    "seed": 200,
+    "firing_rate": 75.0,
+    "quit": true,
+    "ramp_on_time": 0.5
+  },
+  "stim_params": {
+    "firing_rate": 75.0,
+    "on_time": 1.5,
+    "off_time": 1.0,
+    "quit": true,
+    "ramp_on_time": 0.5,
+    "t_start": 1.0,
+    "n_steps": 20,
+    "t_stop": 26.0
+  },
+  "split_params": {
+    "n_steps": 20,
+    "seed": 200
+  }
+}

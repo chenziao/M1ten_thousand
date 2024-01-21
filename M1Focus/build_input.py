@@ -254,7 +254,8 @@ def get_fr_ramp(n_assemblies, firing_rate=(0., 0., 0.),
 
 def get_fr_join(n_assemblies, firing_rate=(0., 0.),
                 on_time=on_time, off_time=off_time,
-                t_start=T_START, t_stop=T_STOP, n_steps=20,):
+                quit=False, ramp_on_time=None, ramp_off_time=None,
+                t_start=T_START, t_stop=T_STOP, n_steps=20):
     """Input is delivered to an increasing portion of one assembly in each cycle.
     n_assemblies: number of assemblies
     firing_rate: 2-tuple of firing rate at off and on time, respectively
@@ -267,33 +268,38 @@ def get_fr_join(n_assemblies, firing_rate=(0., 0.),
     firing_rate = np.asarray(firing_rate).ravel()[:2]
     firing_rate = np.concatenate((np.zeros(2 - firing_rate.size), firing_rate))
 
-    firing_rate = np.repeat(firing_rate, 3)[:-1]
-    t_offset = np.linspace(0., on_time, n_steps, endpoint=False)
-    params = [fr for t in t_offset for fr in get_fr_loop(
-        n_assemblies, firing_rate=firing_rate, on_times=(0., t, t, on_time),
-        off_time=off_time, t_start=t_start, t_stop=t_stop)]
+    fr = firing_rate[1]
+    firing_rate = np.full(5, firing_rate[0])
+    firing_rate[slice(1, 3) if quit else slice(3, 5)] = fr
+    ramp_off_time = on_time if ramp_off_time is None else min(ramp_off_time, on_time)
+    ramp_on_time = 0. if ramp_on_time is None else min(ramp_on_time, ramp_off_time)
+    t_offset = np.linspace(ramp_on_time, ramp_off_time, n_steps, endpoint=False)
+    params = [fr for t in (t_offset[::-1] if quit else t_offset)
+              for fr in get_fr_loop(n_assemblies, firing_rate=firing_rate, 
+                  on_times=(0., t, t, on_time), off_time=off_time,
+                  t_start=t_start, t_stop=t_stop)]
     params = [fr for i in range(n_assemblies) for fr in params[i::n_assemblies]]
     return params
 
 
 def get_join_split(size_assemblies, n_steps=20,
-                   start_portion=0., end_portion=1., seed=None):
+                   low_portion=0., high_portion=1., seed=None):
     """Split each assembly into equal steps for join stimulus
     size_assemblies: list of size of each of all assemblies
     n_steps: number of steps to divide up each assembly
-    start_portion, end_portion: the proportion of neurons in an assembly that
-        join at the start/end of a stimulus cycle
+    low_portion, high_portion: the lowest and highest proportion of neurons
+        in an assembly stimulated during a stimulus cycle
     seed: random seed for the split. If not specified, join in original order
     Return: nested lists of indices in each step in each assembly
     """
-    ratio = np.full(n_steps, (end_portion - start_portion) / n_steps)
-    ratio[0] += start_portion
+    ratio = np.full(n_steps, (high_portion - low_portion) / n_steps)
+    ratio[0] += low_portion
     split_ids = []
     if seed is not None:
         rng_tmp = np.random.default_rng(seed)  # shuffle ids in each assembly
     for n in size_assemblies:
         assy_ids = np.arange(n) if seed is None else rng_tmp.permutation(n)  
-        n_per_step = num_prop(ratio, n * end_portion)  # split into steps
+        n_per_step = num_prop(ratio, n * high_portion)  # split into steps
         split_idx = np.cumsum(n_per_step)  # indices at which to split
         split_ids.append(np.split(assy_ids, split_idx)[:-1])
     if seed is not None:
@@ -392,7 +398,8 @@ def get_ramp_param(stim_setting={}, **add_default_setting):
     setting = {**default_setting, **stim_setting.get('setting', {})}
     assembly_index = setting['assembly_index']
 
-    stim_params_keys = ['firing_rate', 'on_time', 'off_time', 't_start']
+    stim_params_keys = ['firing_rate', 'on_time', 'off_time', 't_start',
+                        'ramp_on_time', 'ramp_off_time']
     stim_params = {k: setting[k] for k in stim_params_keys if k in setting}
     stim_params['t_stop'] = setting['t_start'] + setting['n_cycles'] \
         * (setting['on_time'] + setting['off_time'])
@@ -422,14 +429,14 @@ def get_join_param(stim_setting={}, size_assemblies=[], **add_default_setting):
     setting = {**default_setting, **stim_setting.get('setting', {})}
     assembly_index = setting['assembly_index']
 
-    stim_params_keys = ['firing_rate', 'on_time', 'off_time', 't_start',
-                        'n_steps']
+    stim_params_keys = ['firing_rate', 'on_time', 'off_time', 'quit',
+                        'ramp_on_time', 'ramp_off_time', 't_start', 'n_steps']
     stim_params = {k: setting[k] for k in stim_params_keys if k in setting}
     stim_params['t_stop'] = setting['t_start'] + setting['n_cycles'] \
         * (setting['on_time'] + setting['off_time'])
     fr_params = get_fr_join(len(assembly_index), **stim_params)
 
-    split_params_keys = ['n_steps', 'start_portion', 'end_portion', 'seed']
+    split_params_keys = ['n_steps', 'low_portion', 'high_portion', 'seed']
     split_params = {k: setting[k] for k in split_params_keys if k in setting}
     if max(assembly_index) < len(size_assemblies):
         size_assemblies = np.asarray(size_assemblies)[assembly_index]

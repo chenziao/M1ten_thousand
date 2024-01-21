@@ -258,18 +258,20 @@ def cwt_spectrogram(x, fs, nNotes=6, nOctaves=np.inf, freq_range=(0, np.inf),
     return power, times, frequencies, coif
 
 
-def cwt_spectrogram_xarray(x, fs, axis=-1, downsample_fs=None, channel_coords=None, **cwt_kwargs):
+def cwt_spectrogram_xarray(x, fs, time=None, axis=-1, downsample_fs=None,
+                           channel_coords=None, **cwt_kwargs):
     """Calculate spectrogram using continuous wavelet transform and return an xarray.Dataset
     x: input array
-    fs: sampling frequency
+    fs: sampling frequency (Hz)
     axis: dimension index of time axis in x
     downsample_fs: downsample to the frequency if specified
+    time_unit: unit of time in seconds
     channel_coords: dictionary of {coordinate name: index} for channels
     cwt_kwargs: keyword arguments for cwt_spectrogram()
     """
     x = np.asarray(x)
     T = x.shape[axis] # number of time points
-    t = np.arange(T) / fs
+    t = np.arange(T) / fs if time is None else np.asarray(time)
     if downsample_fs is None or downsample_fs >= fs:
         downsample_fs = fs
         downsampled = x

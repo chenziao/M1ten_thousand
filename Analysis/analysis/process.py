@@ -3,6 +3,7 @@ import pandas as pd
 import xarray as xr
 import scipy.signal as ss
 import pywt
+from scipy.ndimage import gaussian_filter
 
 from build_input import get_stim_cycle, T_STOP
 
@@ -126,8 +127,8 @@ def total_duration(time_windows):
 
 def pop_spike_rate(spike_times, time=None, time_points=None, frequeny=False):
     """Count spike histogram
-    spike_times: spike times
-    time: tuple of (start, stop, step)
+    spike_times: spike times (ms)
+    time: tuple of (start, stop, step) (ms)
     time_points: evenly spaced time points. If used, argument `time` is ignored.
     frequeny: whether return spike frequency in Hz or count
     """
@@ -148,7 +149,7 @@ def group_spike_rate_to_xarray(spikes_df, time, group_ids,
                                group_dims=['assembly', 'population']):
     """Convert spike times into spike rate of neuron groups in xarray dataset
     spikes_df: dataframe of node ids and spike times
-    time: left edges of time bins
+    time: left edges of time bins (ms)
     group_ids: dictionary of {group index: group ids}
     group_dims: dimensions in group index. Defaults to ['assembly', 'population']
     """
@@ -173,6 +174,36 @@ def group_spike_rate_to_xarray(spikes_df, time, group_ids,
         attrs = {'fs': fs}
     ).unstack('group').transpose(*group_dims, 'time')
     return grp_rspk
+
+
+def unit_spike_rate_to_xarray(spikes_df, time, node_ids,
+                              frequeny=False, filt_sigma=0.):
+    """Count units spike histogram
+    spikes_df: dataframe of node ids and spike times
+    time: tuple of (start, stop, step) (ms)
+    node_ids: list of id of nodes considered
+    frequeny: whether return spike frequency in Hz or count
+    filt_sigma: sigma (ms) of Gaussian filter for smoothing
+    Return: 2D spike time histogram (node_ids-by-times)
+    """
+    idx = np.argsort(node_ids)
+    node_ids_sort = np.asarray(node_ids)[idx]
+    idx_inv = np.zeros_like(idx)
+    idx_inv[idx] = range(idx.size)
+    spikes_df = spikes_df.loc[spikes_df['node_ids'].isin(node_ids_sort)]
+    time = np.asarray(time)
+    dt = (time[-1] - time[0]) / (time.size - 1)
+    t_bins = np.append(time, time[-1] + 1/dt)
+    n_bins = np.append(node_ids_sort, node_ids_sort[-1])
+    spike_rate, _, _ = np.histogram2d(
+        spikes_df['node_ids'], spikes_df['timestamps'], bins=(n_bins, t_bins))
+    spike_rate = spike_rate[idx_inv, :]
+    if frequeny:
+        spike_rate = 1000 / dt * spike_rate
+    if filt_sigma:
+        filt_sigma = (0, filt_sigma / dt)
+        spike_rate = gaussian_filter(spike_rate, filt_sigma)
+    return spike_rate
 
 
 def combine_spike_rate(grp_rspk, dim, variables=None, index=slice(None)):
