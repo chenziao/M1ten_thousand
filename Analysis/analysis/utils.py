@@ -13,6 +13,7 @@ STIMULUS_CONFIG = {
     'const': 'config_const.json',
     'ramp': 'config.json',
     'join': 'config.json',
+    'fade': 'config.json',
     'else': 'config.json'
 }
 

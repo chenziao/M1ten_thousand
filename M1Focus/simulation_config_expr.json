@@ -7,7 +7,7 @@
   "target_simulator": "NEURON",
   "run": {
     "tstart": 0.0,
-    "tstop": 21000.0,
+    "tstop": 31000.0,
     "dt": 0.1,
     "dL": 2000000.0,
     "spike_threshold": -15.0,
@@ -33,7 +33,7 @@
     "thalamus_spikes": {
       "input_type": "spikes",
       "module": "sonata",
-      "input_file": "$INPUT_DIR/thalamus_join_a0_t1.0.h5",
+      "input_file": "$INPUT_DIR/thalamus_fade_a01_t1.0.h5",
       "node_set": "thalamus"
     }
   },

@@ -5,7 +5,8 @@
     "stimulus": [
       "baseline",
       "ramp",
-      "join"
+      "join",
+      "fade"
     ]
   }
 ]

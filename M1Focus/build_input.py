@@ -183,7 +183,7 @@ def get_fr_short(n_assemblies, firing_rate=(0., 0.),
     """Short burst is delivered to each assembly sequentially within each cycle.
     n_assemblies: number of assemblies
     firing_rate: 2-tuple of firing rate at off and on time, respectively
-    t_start
+        Pad zero to the beginning if sequence is shorter than required
     t_start, t_stop: start and stop time of the stimulus cycles
     Return: firing rate traces
     """
@@ -212,6 +212,7 @@ def get_fr_long(n_assemblies, firing_rate=(0., 0.),
     """Long burst is delivered to one assembly in each cycle.
     n_assemblies: number of assemblies
     firing_rate: 2-tuple of firing rate at off and on time, respectively
+        Pad zero to the beginning if sequence is shorter than required
     on_time, off_time: on / off time durations
     t_start, t_stop: start and stop time of the stimulus cycles
     Return: firing rate traces
@@ -233,6 +234,7 @@ def get_fr_ramp(n_assemblies, firing_rate=(0., 0., 0.),
     """Ramping input is delivered to one assembly in each cycle.
     n_assemblies: number of assemblies
     firing_rate: 3-tuple of firing rate at off time, start and end of on time
+        Pad zero to the beginning if sequence is shorter than required
     on_time, off_time: on / off time durations
     ramp_on_time, ramp_off_time: start and end time of ramp in on time duration
         Firing rate is constant before start and after end of ramp time.
@@ -259,6 +261,7 @@ def get_fr_join(n_assemblies, firing_rate=(0., 0.),
     """Input is delivered to an increasing portion of one assembly in each cycle.
     n_assemblies: number of assemblies
     firing_rate: 2-tuple of firing rate at off and on time, respectively
+        Pad zero to the beginning if sequence is shorter than required
     on_time, off_time: on / off time durations
     t_start, t_stop: start and stop time of the stimulus cycles
     n_steps: number of steps to divide up each assembly. By each step, an equal
@@ -314,6 +317,42 @@ def split_join_assemblies(node_ids, split_ids):
         for i in idx:
             join_ids.append(np.asarray(ids)[np.asarray(i)])
     return join_ids
+
+
+def get_fr_fade(n_assemblies, firing_rate=(0., 0., 0., 0., 0.),
+                on_time=on_time, off_time=off_time,
+                ramp_on_time=None, ramp_off_time=None,
+                t_start=T_START, t_stop=T_STOP):
+    """Input fades in and out between a pair of assemblies in each cycle.
+    n_assemblies: number of assembly pairs
+    firing_rate: 5-tuple of firing rate at off time, start and end of on time
+        of the fade out assembly, followed by that of the fade in assembly.
+        Mirror the last two entries to the front of them or pad zeros if
+        sequence is shorter than required.
+    on_time, off_time: on / off time durations
+    ramp_on_time, ramp_off_time: start and end time of ramp in on time duration
+        Firing rate is constant before start and after end of ramp time.
+    t_start, t_stop: start and stop time of the stimulus cycles
+    Return: firing rate traces
+    """
+    firing_rate = np.asarray(firing_rate).ravel()
+    n_fr = firing_rate.size
+    firing_rate = firing_rate[:5]
+    firing_rate = np.concatenate((np.zeros(5 - firing_rate.size), firing_rate))
+    if n_fr <= 3:
+        firing_rate[1] = firing_rate[4]
+    if n_fr == 2:
+        firing_rate[2] = firing_rate[3]
+
+    ramp_params = dict(
+        n_assemblies=n_assemblies, on_time=on_time, off_time=off_time,
+        ramp_on_time=ramp_on_time, ramp_off_time=ramp_off_time,
+        t_start=t_start, t_stop=t_stop
+    )
+    params_out = get_fr_ramp(firing_rate=firing_rate[[0, 1, 2]], **ramp_params)
+    params_in = get_fr_ramp(firing_rate=firing_rate[[0, 3, 4]], **ramp_params)
+    params = sum(([params_out[i], params_in[i]] for i in range(n_assemblies)), [])
+    return params
 
 
 def get_fr_loop(n_assemblies, firing_rate=(0., 0., 0.),
@@ -447,6 +486,40 @@ def get_join_param(stim_setting={}, size_assemblies=[], **add_default_setting):
     stim_setting = {'setting': setting, 'stim_params': stim_params,
                     'split_params': split_params}
     return fr_params, stim_setting, split_ids
+
+
+def get_fade_param(stim_setting={}, **add_default_setting):
+    """Generater parameters for fade stimulus from settings 
+    stim_setting: dictionary of stimulus settings and parameters
+    add_default_setting: additional default parameters
+    Return: firing rate traces, stimulus setting and parameters
+    """
+    default_setting = dict(
+        assembly_index = [0, 1],
+        n_cycles = n_cycles_expr,
+        on_time = 2 * on_time,
+        off_time = off_time_expr,
+        ramp_on_time = 0.5 * on_time,
+        ramp_off_time = 1.5 * on_time,
+        t_start = t_start,
+    )
+    default_setting.update(add_default_setting)
+    setting = {**default_setting, **stim_setting.get('setting', {})}
+    assembly_index = setting['assembly_index']
+    if len(assembly_index) % 2:
+        assembly_index = assembly_index[:-1]
+    if not assembly_index:
+        raise ValueError("Specify at least two assemblies in `assembly_index`")
+
+    stim_params_keys = ['firing_rate', 'on_time', 'off_time', 't_start',
+                        'ramp_on_time', 'ramp_off_time']
+    stim_params = {k: setting[k] for k in stim_params_keys if k in setting}
+    stim_params['t_stop'] = setting['t_start'] + setting['n_cycles'] \
+        * (setting['on_time'] + setting['off_time'])
+    fr_params = get_fr_fade(len(assembly_index) // 2, **stim_params)
+
+    stim_setting = {'setting': setting, 'stim_params': stim_params}
+    return fr_params, stim_setting
 
 
 def load_stim_file(input_path=INPUT_PATH, stim_file=None, file_name=''):
@@ -630,6 +703,19 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
         psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
         psg = get_psg_from_fr(psg, split_join_assemblies(
             [Thal_assy[i] for i in assy_idx], split_ids), fr_params)
+        psg.to_sonata(stim_file.replace('.json', '.h5'))
+        with open(stim_file, 'w') as f:
+            json.dump(stim_setting, f, indent=2)
+
+    # Fading thalamus input
+    if 'fade' in stimulus:
+        stim_setting, stim_file = load_stim_file(input_path=input_path,
+            stim_file=stim_files.get('fade', None), file_name='thalamus_fade')
+        fr_params, stim_setting = get_fade_param(stim_setting=stim_setting,
+            firing_rate=1.5 * Thal_burst_fr)
+        assy_idx = stim_setting['setting']['assembly_index']
+        psg = PoissonSpikeGenerator(population='thalamus', seed=psg_seed + 100)
+        psg = get_psg_from_fr(psg, [Thal_assy[i] for i in assy_idx], fr_params)
         psg.to_sonata(stim_file.replace('.json', '.h5'))
         with open(stim_file, 'w') as f:
             json.dump(stim_setting, f, indent=2)
