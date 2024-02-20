@@ -388,10 +388,13 @@ class ReciprocalConnector(AbstractConnector):
         symmetric_p1_arg: Whether p0_arg and p1_arg are identical. If this is
             set to True, argument p1_arg will be ignored. This is forced to be
             True when the population is recurrent.
-        pr, pr_arg: Probability of reciprocal connection and its input argument
-            when it is a function, similar to p0, p0_arg, p1, p1_arg. It can be
-            a function when it has an explicit relation with some node
-            properties such as distance.
+        pr, pr_arg: Probability of reciprocal connection and its first input
+            argument when it is a function, similar to p0, p0_arg, p1, p1_arg.
+            It can be a function when it has an explicit relation with some node
+            properties such as distance. It requires two additional positional
+            arguments p0 and p1 even if they are not used, i.e.,
+            pr(pr_arg, p0, p1), in case pr is dependent on p0 and p1, e.g.,
+            when normalized reciprocal rate NRR = pr/(p0*p1) is given.
         estimate_rho: Whether estimate rho that result in an overall pr. This
             is forced to be False if pr is a function or if rho is specified.
             To estimate rho, all the pairs with possible connections, meaning
@@ -825,7 +828,7 @@ class ReciprocalConnector(AbstractConnector):
             if forward:
                 forward = decision(p0)
             if backward:
-                pr = self.pr(self.pr_arg(i, j))
+                pr = self.pr(self.pr_arg(i, j), p0, p1)
                 backward = decision(self.cond_backward(forward, p0, p1, pr))
 
             # Make connection

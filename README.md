@@ -1,6 +1,7 @@
 # M1ten_thousand
 
-Matt Stroud, Tyler Banks, and Feng Feng
+Ziao Chen, Matt Stroud, Tyler Banks, and Feng Feng
+
 A ten thousand cell network of the primary motor cortex with 4 unique cell types in layer 5A and 5B: CP, CS, FSI, and LTS. Utilizes distance dependent connections for more realism.
 
 
