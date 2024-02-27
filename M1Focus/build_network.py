@@ -226,6 +226,9 @@ if edge_effects:
 ##############################################################################
 ####################### Functions for Building Network #######################
 
+# Dictionary to store NetworkBuilder objects referenced by name
+networks = {}
+
 def build_networks(network_definitions: list) -> dict:
     """
     `network_definitions` should be a list of dictionaries, e.g. [{}, {}, ...]
@@ -331,8 +334,6 @@ def save_networks(networks, network_dir):
 ##############################################################################
 ############################ Network Definitions #############################
 
-# Dictionary to store NetworkBuilder objects referenced by name
-networks = {}
 network_definitions = [
     {   # Start Layer 5A
         'network_name': 'cortex',
@@ -454,58 +455,58 @@ if edge_effects:
     # name the cells the same as the original network because connection rules
     # defined later will require it
     shell_network = [
-    {   # Start Layer 5A
-        'network_name': 'shell',
-        'positions_list': shell_pos_list_5A,
-        'cells': [
-            {   # CP
-                'N': virt_numCP_5A,
-                'pop_name': 'CP',
-                'model_type': 'virtual'
-            },
-            {   # CS
-                'N': virt_numCS_5A,
-                'pop_name': 'CS',
-                'model_type': 'virtual'
-            },
-            {   # FSI
-                'N': virt_numFSI_5A,
-                'pop_name': 'FSI',
-                'model_type': 'virtual'
-            },
-            {   # LTS
-                'N': virt_numLTS_5A,
-                'pop_name': 'LTS',
-                'model_type': 'virtual'
-            }
-        ]
-    },  # End Layer 5A
-    {   # Start Layer 5B
-        'network_name': 'shell',
-        'positions_list': shell_pos_list_5B,
-        'cells': [
-            {   # CP
-                'N': virt_numCP_5B,
-                'pop_name': 'CP',
-                'model_type': 'virtual'
-            },
-            {   # CS
-                'N': virt_numCS_5B,
-                'pop_name': 'CS',
-                'model_type': 'virtual'
-            },
-            {   # FSI
-                'N': virt_numFSI_5B,
-                'pop_name': 'FSI',
-                'model_type': 'virtual'
-            },
-            {   # LTS
-                'N': virt_numLTS_5B,
-                'pop_name': 'LTS',
-                'model_type': 'virtual'
-            }
-        ]
-    }  # End Layer 5B
+        {   # Start Layer 5A
+            'network_name': 'shell',
+            'positions_list': shell_pos_list_5A,
+            'cells': [
+                {   # CP
+                    'N': virt_numCP_5A,
+                    'pop_name': 'CP',
+                    'model_type': 'virtual'
+                },
+                {   # CS
+                    'N': virt_numCS_5A,
+                    'pop_name': 'CS',
+                    'model_type': 'virtual'
+                },
+                {   # FSI
+                    'N': virt_numFSI_5A,
+                    'pop_name': 'FSI',
+                    'model_type': 'virtual'
+                },
+                {   # LTS
+                    'N': virt_numLTS_5A,
+                    'pop_name': 'LTS',
+                    'model_type': 'virtual'
+                }
+            ]
+        },  # End Layer 5A
+        {   # Start Layer 5B
+            'network_name': 'shell',
+            'positions_list': shell_pos_list_5B,
+            'cells': [
+                {   # CP
+                    'N': virt_numCP_5B,
+                    'pop_name': 'CP',
+                    'model_type': 'virtual'
+                },
+                {   # CS
+                    'N': virt_numCS_5B,
+                    'pop_name': 'CS',
+                    'model_type': 'virtual'
+                },
+                {   # FSI
+                    'N': virt_numFSI_5B,
+                    'pop_name': 'FSI',
+                    'model_type': 'virtual'
+                },
+                {   # LTS
+                    'N': virt_numLTS_5B,
+                    'pop_name': 'LTS',
+                    'model_type': 'virtual'
+                }
+            ]
+        }  # End Layer 5B
     ]
 
     # Add the shell to our network definitions
@@ -1125,7 +1126,7 @@ edge_add_properties = {
         'names': ['delay', 'afferent_section_id', 'afferent_section_pos'],
         'rule': syn_dist_delay_feng_section_PN,
         'rule_params': {
-            'p': 0.9, 'sec_id': (1, 2), 'sec_x': (0.4, 0.6), 'min_delay': 1.0
+            'p': 0.9, 'sec_id': (1, 2), 'sec_x': (0.4, 0.6), 'min_delay': 0.8
         },
         'dtypes': [float, np.uint16, float]
     },
@@ -1154,7 +1155,7 @@ edge_add_properties = {
 # into a dictionary so the properties can be referenced in the files,
 # e.g., syn['file.json'].get('property')
 syn_dir = 'components/synaptic_models/synapses_STP'
-synapses.load(rng_obj=rng)
+synapses.load(rng_obj=rng)  # rng not used during building
 syn = synapses.syn_params_dicts(syn_dir=syn_dir)
 
 # Build your edges into the networks
@@ -1223,10 +1224,6 @@ if edge_effects:
                 connector_params['verbose'] = connector.verbose
                 edge_params_val['connector_params'] = connector_params
         shell_edge_params[shell_edge['param']] = edge_params_val
-        # edge_params_val['delay'] = 0.0 # Set delay to 0
-        # add_properties = shell_edge.pop('add_properties')
-        # if add_properties == 'syn_dist_delay_feng_section_PN':
-            # shell_edge['add_properties'] = 'syn_section_PN'
 
     # Check parameters
     print("\nShell edges:")
@@ -1248,11 +1245,11 @@ if edge_effects:
 
 ##########################################################################
 ############################ GAP JUNCTIONS ###############################
-# Currently not working due to some errors in BMTK
-# FSI
-net = networks['cortex']
-population = net.nodes(pop_name='FSI')
 
+net = networks['cortex']
+
+# FSI
+g_gap = 0.000066  # microsiemens
 # gap junction probability correlated with chemical synapse
 gap_junc_FSI = CorrelatedGapJunction(
     p_non=GaussianDropoff(
@@ -1263,9 +1260,9 @@ gap_junc_FSI = CorrelatedGapJunction(
     p_uni=0.56, p_rec=1.,
     connector=edge_params['FSI2FSI']['connector_object']
 )
+population = net.nodes(pop_name='FSI')
 gap_junc_FSI.setup_nodes(source=population, target=population)
 
-g_gap = 0.000066  # microsiemens
 conn = net.add_edges(
     is_gap_junction=True, syn_weight=g_gap, target_sections=None,
     afferent_section_id=0, afferent_section_pos=0.5,
@@ -1273,9 +1270,7 @@ conn = net.add_edges(
 )
 
 # LTS
-net = networks['cortex']
-population = net.nodes(pop_name='LTS')
-
+g_gap = 0.00076  # microsiemens
 # gap junction probability uncorrelated with chemical synapse
 LTS_uncorr_p = GaussianDropoff(
     mean=0., stdev=74.28,
@@ -1287,18 +1282,18 @@ gap_junc_LTS = CorrelatedGapJunction(
     p_non=LTS_uncorr_p, p_uni=LTS_uncorr_p, p_rec=LTS_uncorr_p,
     connector=edge_params['LTS2LTS']['connector_object']
 )
+population = net.nodes(pop_name='LTS')
 gap_junc_LTS.setup_nodes(source=population, target=population)
 
-g_gap = 0.00076  # microsiemens
 conn = net.add_edges(
     is_gap_junction=True, syn_weight=g_gap, target_sections=None,
     afferent_section_id=0, afferent_section_pos=0.5,
     **gap_junc_LTS.edge_params()
 )
 
+
 ##########################################################################
 ###############################  BUILD  ##################################
-
 
 # Save the network into the appropriate network dir
 save_networks(networks, network_dir)
@@ -1310,7 +1305,7 @@ if False:
         network_dir=network_dir,
         tstop=t_sim,
         dt=dt,
-        report_vars=['v'],
+        report_vars=[],
         celsius=31.0,
         spikes_inputs=[
             ('baseline', './input/baseline.h5'),
