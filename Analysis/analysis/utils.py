@@ -23,7 +23,7 @@ def stimulus_type_from_trial_name(trial_name):
 
 
 class ConfigHelper(object):
-    def __init__(self, config_file, root_dir_name='M1ten_thousand'):
+    def __init__(self, config_file, root_dir_name='V1_L5_Model'):
         self.config_file = os.path.abspath(config_file)
         self.root_dir_name = root_dir_name
         with open(self.config_file, 'r') as f:
@@ -92,7 +92,7 @@ def load_spikes_to_df(spike_file, network_name):
     return spikes_df
 
 
-def load_ecp_to_xarray(ecp_file):
+def load_ecp_to_xarray(ecp_file, demean=False):
     with h5py.File(ecp_file, 'r') as f:
         ecp = xr.DataArray(
             f['ecp']['data'][()].T,
@@ -104,4 +104,6 @@ def load_ecp_to_xarray(ecp_file):
                 fs = 1000 / f['ecp']['time'][2] # Hz
             )
         )
+    if demean:
+        ecp -= ecp.mean(dim='time')
     return ecp

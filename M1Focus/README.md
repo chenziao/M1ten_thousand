@@ -1,49 +1,62 @@
 # M1 Cortex
-#### Code by Tyler Banks and Matthew Stroud. In partnership with Dr. Headley.
+#### Code by Ziao Chen, Tyler Banks and Matthew Stroud. In partnership with Dr. Headley.
 Modelling Beta-Gamma Oscillations in the primary motor cortex of a Wistar rat.
 
 
 ## Running the Model
 
-### 1. Build network input files :
+### 1. Build network configuration files
+
+Building of the network can be customized by altering `build_network.py` configuration at the beginning of the script and enable the code block at the end.
+
+To generate necessary network specification files in the `./network` directory, execute
+```
+python build_network.py
+```
+
+The configuration file and the network folder need to be built only once. Configurations can be changed by directly editing the configuration file. Some network parameters can be changed directly in the .csv files in the network directory.
+
+### 2. Build network input files :
 
 To generate thalamic and M2 input using
 ```
 python build_input.py
 ```
 
+To see parameters that can be specified for building the input, use
+```
+python build_input.py -h
+```
+
 Once this step has been completed, input files **WILL NOT** need to be regenerated again.
-
-### 2. Build network configuration files
-
-Building of the network can be customized by altering `build_network.py` configuration at the beginning of the script.
-
-To generate necessary network specification files in the `[network](./network)` directory, execute
-
-```
-python build_network.py
-```
 
 ### 3. Execute run script
 
-The network can be tested using any one of the simulation configuration files listed below (`python run_network.py [configuration file]`)
+Run network using any one of the simulation configuration files (`python run_network.py [configuration file] [use coreneuron (bool)]`)
 
-| Configuration file | Input Details |Notes|
-|--------------------|---------------|-----|
-| [simulation_config.json](./simulation_config.json) |  |  |
+| Configuration file | Input Details |
+|--------------------|---------------|
+| [config_baseline.json](./config_baseline.json) | 20 Hz baseline input |
+|--------------------|---------------|
+| [config_short.json](./config_short.json) | 50 Hz short pulse |
+|--------------------|---------------|
+| [config_long.json](./config_long.json) | 20 Hz long pulse |
 
 
-#### Single Core Mode
-1000 Cell models typically run for **4-6 hours** on a single core.
-
+#### Run in Parallel
+Simulation of 10000 Cell models for 16 seconds run for **20-25 minutes** on ~50 cores.
 ```
-python run_network.py simulation_config.json
+mpirun -n 50 nrniv -mpi -python run_network.py config_baseline.json
 ```
 
-#### Parallel Mode
-1000 Cell models run for **5-6 minutes** on ~50 cores.
+Or... Use Slurm to run:
 ```
-mpirun -n 50 nrniv -mpi -python run_network.py simulation_config.json
+sbatch batchfile_newserver.sh
+```
+
+Change the `TRIALNAME` parameter in the batch file will move the simulation output files to a folder named by `TRIALNAME` under the directory [Analysis/simulation_results/](../Analysis/simulation_results).
+```
+TRIALNAME="baseline_0"
 ```
 
 ### Analysis of the model
