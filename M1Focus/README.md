@@ -37,9 +37,7 @@ Run network using any one of the simulation configuration files (`python run_net
 | Configuration file | Input Details |
 |--------------------|---------------|
 | [config_baseline.json](./config_baseline.json) | 20 Hz baseline input |
-|--------------------|---------------|
 | [config_short.json](./config_short.json) | 50 Hz short pulse |
-|--------------------|---------------|
 | [config_long.json](./config_long.json) | 20 Hz long pulse |
 
 
