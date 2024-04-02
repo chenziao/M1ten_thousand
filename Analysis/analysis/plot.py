@@ -12,7 +12,7 @@ from matplotlib.patches import FancyArrowPatch, ArrowStyle
 from build_input import get_populations
 from analysis import utils, process
 
-MODEL_PATH = os.path.join('..', 'M1Focus')
+MODEL_PATH = os.path.join('..', 'Model')
 CONFIG = 'config.json'
 pop_color_base = {'CP': 'blue', 'CS': 'green', 'FSI': 'red', 'LTS': 'purple'}
 pop_color = {p: 'tab:' + clr for p, clr in pop_color_base.items()}
