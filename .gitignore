@@ -11,6 +11,7 @@ x86_64/
 *.npy
 *.zip
 *backup*
+*temp*
 /temp/
 /Model/network*/
 /Model/results/
