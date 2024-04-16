@@ -1,17 +1,19 @@
 import numpy as np
 import os
 from functools import partial
+from copy import deepcopy
 from bmtk.builder import NetworkBuilder
 from bmtk.utils.sim_setup import build_env_bionet
 import synapses
 import connectors
 from connectors import (
-    spherical_dist, cylindrical_dist_z, GaussianDropoff, UniformInRange,
+    num_prop, spherical_dist, cylindrical_dist_z, GaussianDropoff,
     pr_2_rho, rho_2_pr, ReciprocalConnector, UnidirectionConnector,
     OneToOneSequentialConnector, CorrelatedGapJunction,
     syn_dist_delay_feng_section_PN, syn_section_PN,
     syn_dist_delay_feng, syn_uniform_delay_section
 )
+from build_input import assign_assembly
 
 ##############################################################################
 ############################## General Settings ##############################
@@ -24,8 +26,10 @@ network_dir = 'network'
 t_sim = 31000.0  # ms
 dt = 0.1  # ms
 
-# Network size and dimensions
-num_cells = 10000  # 10000
+# Total number of cells
+num_cells = 1000  # 10000
+
+# Network size and dimensions (um)
 column_width, column_height = 600., 500.
 x_start, x_end = - column_width / 2, column_width / 2
 y_start, y_end = - column_width / 2, column_width / 2
@@ -38,28 +42,23 @@ max_conn_dist = 300.0  # or np.inf
 # Distance range for total probability in estimation of Gaussian drop function
 # ptotal_dist_range = (0., 150.)
 
+# PN assemblies. Cells in the same assembly have more connections
+n_assemblies = 3  # number of PN assemblies
+prob_ratio = 2  # ratio of connection probability within vs. between assemblies
+
 # When enabled, a shell of virtual cells will be created around the core cells.
 edge_effects = True
 
+
 ##############################################################################
-####################### Cell Proportions and Positions #######################
-
-def num_prop(ratio, N):
-    """Calculate numbers of total N in proportion to ratio"""
-    ratio = np.asarray(ratio)
-    p = np.cumsum(np.insert(ratio.ravel(), 0, 0))  # cumulative proportion
-    return np.diff(np.round(N / p[-1] * p).astype(int)).reshape(ratio.shape)
-
+############################## Cell Proportions ##############################
 
 # Number of cells in each population.
 # Following 80/20 E/I equal on CP-CS and 60% FSI to 40% LTS for Interneurons
 # Densities by cell proportion unless otherwise specified:
-# CP: 20%  CS: 20% CTH: 20% CC: 20% FSI: 12% LTS: 8%
-# Corticopontine, Corticostriatal,
-# Fast Spiking Interneuron, Low Threshold Spiker
+# CP: 40%  CS: 40%  FSI: 12%  LTS: 8%
+# Corticopontine, Corticostriatal, Fast Spiking Interneuron, Low Threshold Spiking
 num_CP, num_CS, num_FSI, num_LTS = num_prop([40, 40, 12, 8], num_cells)
-# num_CTH = int(num_cells * 0.2)  # Corticothalamic
-# num_CC = int(num_cells * 0.2)   # Corticocortical
 
 # Amount of cells per layer
 # CP cells are basically only in layer 5B and nowhere else.
@@ -71,18 +70,28 @@ numFSI_5A, numFSI_5B = num_prop([1, 1], num_FSI)
 # Even distribution of LTS cells between Layers 5A and 5B
 numLTS_5A, numLTS_5B = num_prop([1, 1], num_LTS)
 
-# Total 400x400x1820 (ignoring layer 1)
-# Order from top to bottom is 2/3, 4, 5A, 5B, 6
-# Layer 2/3 (420 um thick) 23.1%
-# Layer 5A (250 um thick) 13.7% (z is 250 to 499)
-# Layer 5B (250 um thick) 13.7%  (z is 0 to 249)
+# Layer order from top to bottom is 5A, 5B
+# Layer 5A (250 um thick) z is 0 to 250
+# Layer 5B (250 um thick) z is -250 to 0
 num_cells_5A = numCP_5A + numCS_5A + numFSI_5A + numLTS_5A
 num_cells_5B = numCP_5B + numCS_5B + numFSI_5B + numLTS_5B
 
+# Scaling factor of connection probabilities for PN assemblies
+num_PN = num_CP + num_CS
+# proportion of presynapstic cells in an assembly
+assy_prop = (num_PN / n_assemblies - 1) / (num_PN - 1)
+# Scale connection probability according to assembly
+# If n_assemblies is 1, all PNs belong to the same assembly. Scaling factor is 1.
+p_diff_scale = 1 / (assy_prop * (prob_ratio - 1) + 1)  # between assemblies
+p_same_scale = p_diff_scale * prob_ratio  # within the same assembly
+
+
+##############################################################################
+############################### Cell Positions ###############################
 
 # Generate random cell positions
 # Use poisson-disc sampling to generate positions with minimum distance limit.
-use_poiss_disc = True
+use_poiss_disc = False
 
 # Get positions for cells in the core
 def samples_in_core(samples):
@@ -222,6 +231,21 @@ if edge_effects:
 
 # TODO: generate random orientations
 
+# Generate assemblies for PNs. Divide evenly in each subtype of PN.
+num_PN = np.cumsum([numCP_5A, numCS_5A, numCP_5B, numCS_5B])
+# Assign an assembly id to each cell.
+assy_ids = np.empty(num_PN[-1], dtype=int)
+for i, idx in enumerate(assign_assembly(num_PN[-1], n_assemblies, rng=rng)):
+    assy_ids[idx] = i
+assy_ids = np.split(assy_ids, num_PN[:-1])
+
+if edge_effects:
+    virt_numPN = np.cumsum([virt_numCP_5A, virt_numCS_5A, virt_numCP_5B, virt_numCS_5B])
+    virt_assy_ids = np.empty(virt_numPN[-1], dtype=int)
+    for i, idx in enumerate(assign_assembly(virt_numPN[-1], n_assemblies, rng=rng)):
+        virt_assy_ids[idx] = i
+    virt_assy_ids = np.split(virt_assy_ids, virt_numPN[:-1])
+
 
 ##############################################################################
 ####################### Functions for Building Network #######################
@@ -342,6 +366,7 @@ network_definitions = [
             {   # CP
                 'N': numCP_5A,
                 'pop_name': 'CP',
+                'assembly_id': assy_ids[0],
                 'rotation_angle_zaxis': None,
                 'rotation_angle_yaxis': None,
                 'model_type': 'biophysical',
@@ -351,6 +376,7 @@ network_definitions = [
             {   # CS
                 'N': numCS_5A,
                 'pop_name': 'CS',
+                'assembly_id': assy_ids[1],
                 'rotation_angle_zaxis': None,
                 'rotation_angle_yaxis': None,
                 'model_type': 'biophysical',
@@ -384,6 +410,7 @@ network_definitions = [
             {   # CP
                 'N': numCP_5B,
                 'pop_name': 'CP',
+                'assembly_id': assy_ids[2],
                 'rotation_angle_zaxis': None,
                 'rotation_angle_yaxis': None,
                 'model_type': 'biophysical',
@@ -393,6 +420,7 @@ network_definitions = [
             {   # CS
                 'N': numCS_5B,
                 'pop_name': 'CS',
+                'assembly_id': assy_ids[3],
                 'rotation_angle_zaxis': None,
                 'rotation_angle_yaxis': None,
                 'model_type': 'biophysical',
@@ -462,11 +490,13 @@ if edge_effects:
                 {   # CP
                     'N': virt_numCP_5A,
                     'pop_name': 'CP',
+                    'assembly_id': virt_assy_ids[0],
                     'model_type': 'virtual'
                 },
                 {   # CS
                     'N': virt_numCS_5A,
                     'pop_name': 'CS',
+                    'assembly_id': virt_assy_ids[1],
                     'model_type': 'virtual'
                 },
                 {   # FSI
@@ -488,11 +518,13 @@ if edge_effects:
                 {   # CP
                     'N': virt_numCP_5B,
                     'pop_name': 'CP',
+                    'assembly_id': virt_assy_ids[2],
                     'model_type': 'virtual'
                 },
                 {   # CS
                     'N': virt_numCS_5B,
                     'pop_name': 'CS',
+                    'assembly_id': virt_assy_ids[3],
                     'model_type': 'virtual'
                 },
                 {   # FSI
@@ -514,6 +546,14 @@ if edge_effects:
 
 ############################## END EDGE EFFECTS ##############################
 ##############################################################################
+
+# Set assembly_id to -1 for populations that form no assembly
+assembly_network = {'cortex', 'shell'}
+for net_df in network_definitions:
+    if net_df['network_name'] in assembly_network:
+        for c in net_df['cells']:
+            if 'assembly_id' not in c:
+                c['assembly_id'] = -1
 
 # Build and save our NetworkBuilder dictionary
 networks = build_networks(network_definitions)
@@ -541,7 +581,6 @@ networks = build_networks(network_definitions)
 #       # connection properties, like delay
 #   }
 # ]
-
 
 edge_definitions = [
     {   # CP -> CP Reciprocal
@@ -746,28 +785,72 @@ edge_definitions = [
     }
 ]
 
-# edge_params should contain additional parameters to be added to add_edges().
-# The following parameters for random synapse placement are not necessary in
-# edge_params if afferent_section_id and afferent_section_pos are specified.
-# distance_range: place synapse within distance range [dmin, dmax] from soma.
-# target_sections: place synapse within the given sections in a list.
-# afferent_section_id must be specified here even though it will be overwritten
-# by add_properties(), since there could be potential error due to the dtype
-# being forced to be converted to float if values are not specified in the
-# corresponding column in the edge csv file.
-edge_params = {
+
+##########################  CONSTRUCT ASSEMBLIES  ###########################
+
+# Update edge definitions to create specifics of all possible edges between assemblies
+assy_pop_name = {'CP', 'CS'}  # pop_name of populations that form assemblies
+edge_definitions_new = []
+for edge in edge_definitions:
+    src_trg = edge.get('edge', {})
+    src_trg = [src_trg.get(p, {}).get('pop_name', [None]) for p in ('source', 'target')]
+    # ensure pop_name is in list format
+    src_trg = [[p] if isinstance(p, str) else list(p) for p in src_trg]
+    if set(src_trg[0] + src_trg[1]).issubset(assy_pop_name):
+        edge['edge']['source']['pop_name'] = src_trg[0]
+        edge['edge']['target']['pop_name'] = src_trg[1]
+        edges = []
+        for i in range(n_assemblies):
+            for j in range(n_assemblies):
+                subedge = deepcopy(edge)
+                subedge['assy_type'] = subedge['param']  # original `param` name
+                # add assembly_id to population filter conditions
+                subedge['edge']['source']['assembly_id'] = i
+                subedge['edge']['target']['assembly_id'] = j
+                # new `param` name with assembly id labels
+                subedge['param'] += '_%d_%d' % (i, j) 
+                edges.append(subedge)
+        edge_definitions_new.extend(edges)
+    else:
+        edge_definitions_new.append(edge)
+edge_definitions = edge_definitions_new
+
+# Specify overall connection probability regardless of assemblies
+conn_prob = {
+    'CP2CP': GaussianDropoff(stdev=127.0, min_dist=0., max_dist=max_conn_dist,
+        ptotal=0.0866, ptotal_dist_range=(0., 100.), dist_type='cylindrical'),
+    'CS2CS': GaussianDropoff(stdev=127.0, min_dist=0., max_dist=max_conn_dist,
+        ptotal=0.077, ptotal_dist_range=(0., 100.), dist_type='cylindrical'),
+    'CP2CS': GaussianDropoff(stdev=127.0, min_dist=0., max_dist=max_conn_dist,
+        ptotal=0.01, ptotal_dist_range=(0., 100.), dist_type='cylindrical'),
+    'CS2CP': GaussianDropoff(stdev=127.0, min_dist=0., max_dist=max_conn_dist,
+        ptotal=0.112, ptotal_dist_range=(0., 100.), dist_type='cylindrical')
+}
+
+# Create connection probabilities using scaled distance dependent Gaussian rules
+# for connections within the same assembly or between different assemblies.
+keys = ['mean', 'stdev', 'min_dist', 'max_dist', 'dist_type']
+assy_conn_prob = {}
+for conn, gauss in conn_prob.items():
+    pmax = gauss.pmax
+    kwargs = {key: getattr(gauss, key) for key in keys}
+    assy_conn_prob[conn] = {
+        True: GaussianDropoff(pmax=p_same_scale * pmax, **kwargs),
+        False: GaussianDropoff(pmax=p_diff_scale * pmax, **kwargs)
+    }
+
+# Specify common edge parameters (see format of `edge_params` later) for
+# connections between populations that form assemblies.
+# Scaled connection probability will be added according to assemblies.   
+all_assy_edge_params = {
     'CP2CP': {
         'connector_class': ReciprocalConnector,
         'connector_params': {
-            'p0': GaussianDropoff(
-                stdev=127.0, min_dist=0., max_dist=max_conn_dist,
-                ptotal=0.0866, ptotal_dist_range=(0., 100.),
-                dist_type='cylindrical'),
+            'p0': None,  # to be substituted
             'p0_arg': cylindrical_dist_z,
-            'pr': 0.042,
-            'estimate_rho': True,
+            'pr': 0.042, 'estimate_rho': True,
             'dist_range_forward': (0., 100.)
-            },
+        },
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
         'weight_sigma': 0.8,
@@ -779,15 +862,11 @@ edge_params = {
     'CS2CS': {
         'connector_class': ReciprocalConnector,
         'connector_params': {
-            'p0': GaussianDropoff(
-                stdev=127.0, min_dist=0., max_dist=max_conn_dist,
-                ptotal=0.077, ptotal_dist_range=(0., 100.),
-                dist_type='cylindrical'),
+            'p0': None,
             'p0_arg': cylindrical_dist_z,
-            'pr': 0.015,
-            'estimate_rho': True,
+            'pr': 0.015, 'estimate_rho': True,
             'dist_range_forward': (0., 100.)
-            },
+        },
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
         'weight_sigma': 0.8,
@@ -799,12 +878,9 @@ edge_params = {
     'CP2CS': {
         'connector_class': UnidirectionConnector,
         'connector_params': {
-            'p': GaussianDropoff(
-                stdev=127.0, min_dist=0., max_dist=max_conn_dist,
-                ptotal=0.01, ptotal_dist_range=(0., 100.),
-                dist_type='cylindrical'),
+            'p': None,
             'p_arg': cylindrical_dist_z,
-            },
+        },
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
         'weight_sigma': 0.8,
@@ -816,12 +892,9 @@ edge_params = {
     'CS2CP': {
         'connector_class': UnidirectionConnector,
         'connector_params': {
-            'p': GaussianDropoff(
-                stdev=127.0, min_dist=0., max_dist=max_conn_dist,
-                ptotal=0.112, ptotal_dist_range=(0., 100.),
-                dist_type='cylindrical'),
+            'p': None,
             'p_arg': cylindrical_dist_z,
-            },
+        },
         'weight_function': 'lognormal_weight',
         'syn_weight': 1.,
         'weight_sigma': 0.8,
@@ -829,7 +902,67 @@ edge_params = {
         'afferent_section_id': 1,
         'afferent_section_pos': 0.4,
         'dynamics_params': 'CS2CP.json'
-    },
+    }
+}
+
+# Create edge parameters for all possible edges between assemblies using common
+# parameters specified in `all_assy_edge_params`.
+# Add scaled connection probabilities to connector classes. 
+assy_edge_params = {}
+for edge in edge_definitions:
+    if 'assy_type' not in edge:  # identify edges between assemblies
+        continue
+    # get edge parameters
+    assy_type, assy_conn = edge['assy_type'], edge['param']
+    edge_params_val = deepcopy(all_assy_edge_params[assy_type])
+    connector_params = edge_params_val['connector_params']
+    # get source and target populations
+    src, trg = edge['edge']['source'], edge['edge']['target']
+    src_assy, trg_assy = src['assembly_id'], trg['assembly_id']
+    # get scaled connection probability
+    prob = assy_conn_prob[assy_type][src_assy == trg_assy]
+    # update connector class and connector parameters
+    connector_class = edge_params_val['connector_class']
+    if connector_class is UnidirectionConnector:
+        connector_params['p'] = prob
+    elif connector_class is ReciprocalConnector:
+        connector_params['p0'] = prob
+        if src['pop_name'] == trg['pop_name']:
+            connector_params['symmetric_p1'] = True
+            connector_params['symmetric_p1_arg'] = True
+            conj_assy_conn = assy_type + '_%d_%d' % (trg_assy, src_assy)
+            if conj_assy_conn in assy_edge_params:
+                edge_params_val['connector_class'] = get_connector
+                edge_params_val['connector_params'] = {'param': conj_assy_conn}
+    elif connector_class is get_connector:
+        conj_assy_type = connector_params['param']
+        conj_assy_conn = conj_assy_type + '_%d_%d' % (trg_assy, src_assy)
+        if conj_assy_conn not in assy_edge_params:
+            raise ValueError("When using `ReciprocalConnector` and `get_connector`"
+                " with assemblies, the two directional connections between two "
+                "distinct populations should occur in the same order in both "
+                "dictionaries of `edge_definitions` and `edge_params`.")
+        assy_edge_params[conj_assy_conn]['connector_params']['p1'] = prob
+        connector_params['param'] = conj_assy_conn
+    else:
+        raise TypeError("Connector type `%s` not supported." % 
+            getattr(connector_class, '__name__', str(connector_class)))
+    assy_edge_params[assy_conn] = edge_params_val
+
+
+#############################  EDGE PARAMETERS  ##############################
+
+# edge_params should contain additional parameters to be added to add_edges().
+# The following parameters for random synapse placement are not necessary in
+# edge_params if afferent_section_id and afferent_section_pos are specified.
+# distance_range: place synapse within distance range [dmin, dmax] from soma.
+# target_sections: place synapse within the given sections in a list.
+# afferent_section_id must be specified here even though it will be overwritten
+# by add_properties(), since there could be potential error due to the dtype
+# being forced to be converted to float if values are not specified in the
+# corresponding column in the edge csv file.
+edge_params = {
+    **assy_edge_params,
     'FSI2FSI': {
         'connector_class': ReciprocalConnector,
         'connector_params': {
@@ -1120,6 +1253,7 @@ edge_params = {
     }
 }  # edges referenced by name
 
+# Additional connection properties
 # Will be called by conn.add_properties() for the associated connection
 edge_add_properties = {
     'syn_dist_delay_feng_section_PN': {
@@ -1148,7 +1282,6 @@ edge_add_properties = {
         'dtypes': float
     }
 }
-
 
 # Load synapse dictionaries
 # See synapses.py - loads each json's in components/synaptic_models/synapses_STP

@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from bmtool.util import util
 from bmtk.utils.reports.spike_trains import PoissonSpikeGenerator
+from connectors import num_prop
 
 
 INPUT_PATH = "./input"
@@ -88,26 +89,31 @@ def get_populations(node_df, pop_names, only_id=False):
     return {p: func(node_df, p) for p in pop_names}
 
 
-def get_assembly(Thal_nodes, Cortex_nodes, n_assemblies, rng=default_rng):
+def get_assembly_ids(pop_nodes, assy_idx=[slice(None)]):
+    pop_assy = []
+    for nodes in pop_nodes:
+        ids = np.array(nodes)
+        pop_assy.append([ids[idx] for idx in assy_idx])
+    return pop_assy
+
+
+def assign_assembly(N, n_assemblies, rng=default_rng):
+    n_per_assemb = num_prop(np.ones(n_assemblies), N)
+    split_idx = np.cumsum(n_per_assemb)[:-1]  # indices at which to split
+    assy_idx = rng.permutation(N)  # random shuffle for assemblies
+    assy_idx = np.split(assy_idx, split_idx)  # split into assemblies
+    assy_idx = [np.sort(idx) for idx in assy_idx]
+    return assy_idx
+
+
+def get_assembly(Thal_nodes, PN_nodes, n_assemblies, rng=default_rng):
     """Divide PNs into n_assemblies and return lists of ids in each assembly"""
-    CP_nodes, CS_nodes = Cortex_nodes['CP'], Cortex_nodes['CS']
-    num_PN = len(Thal_nodes)
-    if len(CP_nodes) + len(CS_nodes) != num_PN:
+    num_PN = len(PN_nodes)
+    if len(Thal_nodes) != num_PN:
         raise ValueError("Number of thalamus cells don't match number of PNs")
 
-    n_per_assemb = num_prop(np.ones(n_assemblies), num_PN)
-    split_idx = np.cumsum(n_per_assemb)[:-1]  # indices at which to split
-    assemb_idx = rng.permutation(num_PN)  # random shuffle for assemblies
-    assemb_idx = np.split(assemb_idx, split_idx)  # split into assemblies
-
-    Thal_ids = np.array(Thal_nodes)
-    PN_ids = np.array(CP_nodes + CS_nodes)
-    Thal_assy = []
-    PN_assy = []
-    for idx in assemb_idx:
-        idx = np.sort(idx)
-        Thal_assy.append(Thal_ids[idx])
-        PN_assy.append(PN_ids[idx])
+    assy_idx = assign_assembly(num_PN, n_assemblies, rng=rng)
+    Thal_assy, PN_assy = get_assembly_ids((Thal_nodes, PN_nodes), assy_idx)
     return Thal_assy, PN_assy
 
 
@@ -117,27 +123,19 @@ GRID_ID = np.array([
     [0, 4, 5],
     [3, 7, 1]
 ])
-def get_grid_assembly(Thal_nodes, Cortex_nodes, node_df,
+def get_grid_assembly(Thal_nodes, PN_nodes_df,
                       grid_id=GRID_ID, cortex_size=CORTEX_SIZE):
-    PN_nodes = node_df.loc[Cortex_nodes['CP'] + Cortex_nodes['CS']]
-    if len(PN_nodes) != len(Thal_nodes):
+    if len(PN_nodes_df) != len(Thal_nodes):
         raise ValueError("Number of thalamus cells don't match number of PNs")
-
     bins = []
     for i in range(2):
         bins.append(np.linspace(*cortex_size[i], grid_id.shape[i] + 1)[1:])
         bins[i][-1] += 1.
-    PN_nodes['assy_id'] = grid_id[np.digitize(PN_nodes['pos_x'], bins[0]),
-                                  np.digitize(PN_nodes['pos_y'], bins[1])]
+    PN_nodes_df['assy_id'] = grid_id[np.digitize(PN_nodes_df['pos_x'], bins[0]),
+                                     np.digitize(PN_nodes_df['pos_y'], bins[1])]
 
-    Thal_ids = np.array(Thal_nodes)
-    PN_ids = np.array(PN_nodes.index)
-    Thal_assy = []
-    PN_assy = []
-    for i in np.sort(grid_id, axis=None):
-        idx = PN_nodes['assy_id'] == i
-        Thal_assy.append(Thal_ids[idx])
-        PN_assy.append(PN_ids[idx])
+    assy_idx = [PN_nodes_df['assy_id'] == i for i in np.sort(grid_id, axis=None)]
+    Thal_assy, PN_assy = get_assembly_ids((Thal_nodes, PN_nodes_df.index), assy_idx)
     return Thal_assy, PN_assy
 
 
@@ -659,14 +657,15 @@ def build_input(t_stop=T_STOP, t_start=T_START,
     assembly_id_file = os.path.join(input_path, "Assembly_ids.csv")
     if n_assemblies > 0:
         Thal_nodes = df2node_id(nodes['thalamus'])
+        PN_nodes = Cortex_nodes['CP'] + Cortex_nodes['CS']
         if grid_assembly:
             Thal_assy, PN_assy = get_grid_assembly(
-                Thal_nodes, Cortex_nodes, nodes['cortex'])
+                Thal_nodes, nodes['cortex'].loc[PN_nodes])
             n_assemblies = len(Thal_assy)
         else:
             rng = get_rng(seed=net_seed, seed_offset=100)
             Thal_assy, PN_assy = get_assembly(
-                Thal_nodes, Cortex_nodes, n_assemblies, rng=rng)
+                Thal_nodes, PN_nodes, n_assemblies, rng=rng)
         input_pairs_to_file(assembly_id_file, Thal_assy, PN_assy)
     else:
         try:
