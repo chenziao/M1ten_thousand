@@ -27,7 +27,7 @@ t_sim = 31000.0  # ms
 dt = 0.1  # ms
 
 # Total number of cells
-num_cells = 1000  # 10000
+num_cells = 10000  # 10000
 
 # Network size and dimensions (um)
 column_width, column_height = 600., 500.
@@ -91,7 +91,7 @@ p_same_scale = p_diff_scale * prob_ratio  # within the same assembly
 
 # Generate random cell positions
 # Use poisson-disc sampling to generate positions with minimum distance limit.
-use_poiss_disc = False
+use_poiss_disc = True
 
 # Get positions for cells in the core
 def samples_in_core(samples):
