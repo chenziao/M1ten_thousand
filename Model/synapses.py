@@ -121,7 +121,7 @@ def GABA_AB_STP(syn_params, sec_x, sec_id):
     :param sec_id: target section
     :return: NEURON synapse object
     """
-    syn = h.GABA_AB_STP(sec_x, sec=sec_id)
+    syn = h.GABA_A_STP(sec_x, sec=sec_id) # not using GABAB
     for key in GABA_AB_STP_params:
         value = syn_params.get(key)
         if value is not None:

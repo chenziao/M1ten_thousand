@@ -26,15 +26,13 @@ NEURON {
     POINT_PROCESS AMPA_NMDA_STP
     RANGE initW     : synaptic scaler for large scale networks added by Greg
     RANGE tau_r_AMPA, tau_d_AMPA, tau_r_NMDA, tau_d_NMDA
-    RANGE Use, Dep, Fac, u0, mg, NMDA_ratio
-    RANGE i, i_AMPA, i_NMDA, g_AMPA, g_NMDA, g, e
-    RANGE gmax_AMPA, gmax_NMDA
+    RANGE Use, Dep, Fac, u0, mg
+    RANGE gmax, gmax_AMPA, gmax_NMDA, NMDA_ratio
+    RANGE i, g_AMPA, g_NMDA, e
     NONSPECIFIC_CURRENT i
     RANGE synapseID, verboseLevel
     RANGE conductance
     GLOBAL nc_type_param
-    : For debugging
-    :RANGE sgid, tgid
     RANGE record_use, record_Pr
 }
 
@@ -50,27 +48,23 @@ PARAMETER {
     Fac = 10           (ms)  : Relaxation time constant from facilitation
     e = 0              (mV)  : AMPA and NMDA reversal potential
     mg = 1             (mM)  : Initial concentration of mg2+
-    gmax_NMDA = .001   (uS)  : Weight conversion factor (from nS to uS)
-    gmax_AMPA = .001
+    gmax = .001        (uS)  : Weight conversion factor (from nS to uS)
     u0 = 0                   : Initial value of u, which is the running value of Use
     NMDA_ratio = 0.71  (1)   : The ratio of NMDA to AMPA
     synapseID = 0
     verboseLevel = 0
     conductance = 0.0
     nc_type_param = 7
-    :sgid = -1
-    :tgid = -1
 }
 
 
 ASSIGNED {
     v (mV)
     i (nA)
-    i_AMPA (nA)
-    i_NMDA (nA)
     g_AMPA (uS)
     g_NMDA (uS)
-    g (uS)
+    gmax_AMPA (uS)
+    gmax_NMDA (uS)
     factor_AMPA
     factor_NMDA
     mggate
@@ -105,6 +99,9 @@ INITIAL{
     factor_NMDA = -exp(-tp_NMDA/tau_r_NMDA)+exp(-tp_NMDA/tau_d_NMDA) :NMDA Normalization factor - so that when t = tp_NMDA, gsyn = gpeak
     factor_NMDA = 1/factor_NMDA
 
+    gmax_AMPA = initW * gmax
+    gmax_NMDA = initW * gmax * NMDA_ratio
+
     record_use = u0
     record_Pr = u0
 }
@@ -115,10 +112,7 @@ BREAKPOINT {
     mggate = 1 / (1 + exp(0.062 (/mV) * -(v)) * (mg / 3.57 (mM))) :mggate kinetics - Jahr & Stevens 1990
     g_AMPA = gmax_AMPA*(B_AMPA-A_AMPA) :compute time varying conductance as the difference of state variables B_AMPA and A_AMPA
     g_NMDA = gmax_NMDA*(B_NMDA-A_NMDA) * mggate :compute time varying conductance as the difference of state variables B_NMDA and A_NMDA and mggate kinetics
-    g = g_AMPA + g_NMDA
-    i_AMPA = g_AMPA*(v-e) :compute the AMPA driving force based on the time varying conductance, membrane potential, and AMPA reversal
-    i_NMDA = g_NMDA*(v-e) :compute the NMDA driving force based on the time varying conductance, membrane potential, and NMDA reversal
-    i = (i_AMPA + i_NMDA) * initW
+    i = (g_AMPA + g_NMDA)*(v-e) :compute the AMPA and NMDA driving force based on the time varying conductance, membrane potential, and reversal
 }
 
 
@@ -130,10 +124,8 @@ DERIVATIVE state{
 }
 
 
-NET_RECEIVE (weight, weight_AMPA, weight_NMDA, R, Pr, u, tsyn (ms), nc_type){
-    weight_AMPA = weight
-    weight_NMDA = weight * NMDA_ratio
-
+NET_RECEIVE (weight, R, u, tsyn (ms)){
+    LOCAL Pr, weight_AMPA, weight_NMDA
     INITIAL{
         R=1
         u=u0
@@ -147,13 +139,6 @@ NET_RECEIVE (weight, weight_AMPA, weight_NMDA, R, Pr, u, tsyn (ms), nc_type){
         return;
     ENDVERBATIM
     }
-
-    if (flag == 1) {
-        : self event to set next weight at delay
-          weight = conductance
-
-    }
-    : flag == 0, i.e. a spike has arrived
 
     : calc u at event-
     if (Fac > 0) {
@@ -181,14 +166,23 @@ NET_RECEIVE (weight, weight_AMPA, weight_NMDA, R, Pr, u, tsyn (ms), nc_type){
 
     tsyn = t
 
-    A_AMPA = A_AMPA + Pr*weight_AMPA*factor_AMPA
-    B_AMPA = B_AMPA + Pr*weight_AMPA*factor_AMPA
-    A_NMDA = A_NMDA + Pr*weight_NMDA*factor_NMDA
-    B_NMDA = B_NMDA + Pr*weight_NMDA*factor_NMDA
+    weight_AMPA = Pr*weight*factor_AMPA
+    weight_NMDA = Pr*weight*factor_NMDA
+    A_AMPA = A_AMPA + weight_AMPA
+    B_AMPA = B_AMPA + weight_AMPA
+    A_NMDA = A_NMDA + weight_NMDA
+    B_NMDA = B_NMDA + weight_NMDA
 
     if( verboseLevel > 0 ) {
         printf( " vals %g %g %g %g\n", A_AMPA, weight_AMPA, factor_AMPA, weight )
     }
+
+    if (flag == 1) {
+        : self event to set next weight at delay
+          weight = conductance
+
+    }
+    : flag == 0, i.e. a spike has arrived
 }
 
 

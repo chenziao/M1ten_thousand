@@ -10,11 +10,11 @@ COMMENT
 ENDCOMMENT
 
 
-TITLE GABAA and GABAB receptor with presynaptic short-term plasticity
+TITLE GABAA receptor with presynaptic short-term plasticity
 
 
 COMMENT
-GABAA and GABAB receptor conductance using a dual-exponential profile
+GABAA receptor conductance using a dual-exponential profile
 presynaptic short-term plasticity based on Fuhrmann et al. 2002, deterministic
 version.
 ENDCOMMENT
@@ -23,12 +23,12 @@ ENDCOMMENT
 NEURON {
     THREADSAFE
 
-    POINT_PROCESS GABA_AB_STP
+    POINT_PROCESS GABA_A_STP
     RANGE initW     : synaptic scaler for large scale networks added by Greg
-    RANGE tau_r_GABAA, tau_d_GABAA, tau_r_GABAB, tau_d_GABAB
+    RANGE tau_r_GABAA, tau_d_GABAA
     RANGE Use, Dep, Fac, u0
-    RANGE gmax, gmax_GABAA, gmax_GABAB, GABAB_ratio
-    RANGE i, i_GABAA, i_GABAB, g_GABAA, g_GABAB, e_GABAA, e_GABAB
+    RANGE gmax, gmax_GABAA
+    RANGE i, g, e_GABAA
     NONSPECIFIC_CURRENT i
     RANGE synapseID, verboseLevel
     RANGE conductance
@@ -41,16 +41,12 @@ PARAMETER {
     initW        = 1.0        : added by Greg Glickert to scale synaptic weight for large scale modeling
     tau_r_GABAA  = 0.2   (ms) : dual-exponential conductance profile
     tau_d_GABAA  = 8     (ms) : IMPORTANT: tau_r < tau_d
-    tau_r_GABAB  = 3.5   (ms) : dual-exponential conductance profile :Placeholder value from hippocampal recordings SR
-    tau_d_GABAB  = 260.9 (ms) : IMPORTANT: tau_r < tau_d  :Placeholder value from hippocampal recordings
     Use          = 1.0   (1)  : Utilization of synaptic efficacy
     Dep          = 100   (ms) : relaxation time constant from depression
-    Fac          = 10    (ms) : relaxation time constant from facilitation
+    Fac          = 10    (ms) :  relaxation time constant from facilitation
     e_GABAA      = -75   (mV) : GABAA reversal potential was -80mv change to -75 never heard of e_gaba not -75 - Greg
-    e_GABAB      = -75   (mV) : GABAB reversal potential was -97mv change to -75 never heard of e_gaba not -75 - Greg
-    gmax         = .001  (uS) : Weight conversion factor (from nS to uS)
-    u0           = 0          : initial value of u, which is the running value of release probability
-    GABAB_ratio  = 0     (1)  : The ratio of GABAB to GABAA
+    gmax         = .001  (uS) : weight conversion factor (from nS to uS)
+    u0           = 0          :initial value of u, which is the running value of release probability
     synapseID    = 0
     verboseLevel = 0
     conductance  = 0.0
@@ -61,14 +57,9 @@ PARAMETER {
 ASSIGNED {
     v (mV)
     i (nA)
-    i_GABAA (nA)
-    i_GABAB (nA)
-    g_GABAA (uS)
-    g_GABAB (uS)
+    g (uS)
     gmax_GABAA (uS)
-    gmax_GABAB (uS)
     factor_GABAA
-    factor_GABAB
     record_use
     record_Pr
 }
@@ -78,31 +69,21 @@ ASSIGNED {
 STATE {
     A_GABAA       : GABAA state variable to construct the dual-exponential profile - decays with conductance tau_r_GABAA
     B_GABAA       : GABAA state variable to construct the dual-exponential profile - decays with conductance tau_d_GABAA
-    A_GABAB       : GABAB state variable to construct the dual-exponential profile - decays with conductance tau_r_GABAB
-    B_GABAB       : GABAB state variable to construct the dual-exponential profile - decays with conductance tau_d_GABAB
 }
 
 
 INITIAL{
-    LOCAL tp_GABAA, tp_GABAB
+    LOCAL tp_GABAA
 
     A_GABAA = 0
     B_GABAA = 0
 
-    A_GABAB = 0
-    B_GABAB = 0
-
     tp_GABAA = (tau_r_GABAA*tau_d_GABAA)/(tau_d_GABAA-tau_r_GABAA)*log(tau_d_GABAA/tau_r_GABAA) :time to peak of the conductance
-    tp_GABAB = (tau_r_GABAB*tau_d_GABAB)/(tau_d_GABAB-tau_r_GABAB)*log(tau_d_GABAB/tau_r_GABAB) :time to peak of the conductance
 
     factor_GABAA = -exp(-tp_GABAA/tau_r_GABAA)+exp(-tp_GABAA/tau_d_GABAA) :GABAA Normalization factor - so that when t = tp_GABAA, gsyn = gpeak
     factor_GABAA = 1/factor_GABAA
 
-    factor_GABAB = -exp(-tp_GABAB/tau_r_GABAB)+exp(-tp_GABAB/tau_d_GABAB) :GABAB Normalization factor - so that when t = tp_GABAB, gsyn = gpeak
-    factor_GABAB = 1/factor_GABAB
-
     gmax_GABAA = initW * gmax
-    gmax_GABAB = initW * gmax * GABAB_ratio
 
     record_use = u0
     record_Pr = u0
@@ -111,24 +92,19 @@ INITIAL{
 
 BREAKPOINT {
     SOLVE state METHOD cnexp
-    g_GABAA = gmax_GABAA*(B_GABAA-A_GABAA) :compute time varying conductance as the difference of state variables B_GABAA and A_GABAA
-    g_GABAB = gmax_GABAB*(B_GABAB-A_GABAB) :compute time varying conductance as the difference of state variables B_GABAB and A_GABAB
-    i_GABAA = g_GABAA*(v-e_GABAA) :compute the GABAA driving force based on the time varying conductance, membrane potential, and GABAA reversal
-    i_GABAB = g_GABAB*(v-e_GABAB) :compute the GABAB driving force based on the time varying conductance, membrane potential, and GABAB reversal
-    i = i_GABAA + i_GABAB
+    g = gmax_GABAA*(B_GABAA-A_GABAA) :compute time varying conductance as the difference of state variables B_GABAA and A_GABAA
+    i = g*(v-e_GABAA) :compute the GABAA driving force based on the time varying conductance, membrane potential, and GABAA reversal
 }
 
 
 DERIVATIVE state{
     A_GABAA' = -A_GABAA/tau_r_GABAA
     B_GABAA' = -B_GABAA/tau_d_GABAA
-    A_GABAB' = -A_GABAB/tau_r_GABAB
-    B_GABAB' = -B_GABAB/tau_d_GABAB
 }
 
 
 NET_RECEIVE (weight, R, u, tsyn (ms)){
-    LOCAL Pr, weight_GABAA, weight_GABAB
+    LOCAL Pr, weight_GABAA
     INITIAL{
         R=1
         u=u0
@@ -170,11 +146,8 @@ NET_RECEIVE (weight, R, u, tsyn (ms)){
     tsyn = t
 
     weight_GABAA = Pr*weight*factor_GABAA
-    weight_GABAB = Pr*weight*factor_GABAB
     A_GABAA = A_GABAA + weight_GABAA
     B_GABAA = B_GABAA + weight_GABAA
-    A_GABAB = A_GABAB + weight_GABAB
-    B_GABAB = B_GABAB + weight_GABAB
 
     if( verboseLevel > 0 ) {
         printf( " vals %g %g %g %g\n", A_GABAA, weight_GABAA, factor_GABAA, weight )

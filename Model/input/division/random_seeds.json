@@ -2,6 +2,19 @@
   {
     "net_seed": 123,
     "psg_seed": 0,
-    "stimulus": []
+    "stimulus": [
+      "baseline",
+      "short",
+      "long"
+    ]
+  },
+  {
+    "net_seed": 123,
+    "psg_seed": 1,
+    "stimulus": [
+      "baseline",
+      "short",
+      "long"
+    ]
   }
 ]

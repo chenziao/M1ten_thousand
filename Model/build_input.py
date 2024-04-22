@@ -17,9 +17,10 @@ STIMULUS = ['baseline', 'short', 'long']
 
 N_ASSEMBLIES = 9  # number of assemblies
 NET_SEED = 123  # random seed for network r.v.'s (e.g. assemblies, firing rate)
-PSG_SEED = 0  # poisson spike generator random seed for different trials
+PSG_SEED = 1  # poisson spike generator random seed for different trials
+# Warning: Using PoissonSpikeGenerator(seed=0) may not set random seed correctly.
 
-T_STOP = 28.  # sec. Simulation time
+T_STOP = 51.  # sec. Simulation time
 T_START = 1.0  # sec. Time to start burst input
 t_start = T_START  # to be imported to other scipts
 on_time = 1.0  # sec. Burst input duration
@@ -30,8 +31,8 @@ n_cycles_expr = 10  # number of cycles for experiments
 SHELL_FR = {
     'CP': (1.9, 1.8),
     'CS': (1.3, 1.4),
-    'FSI': (7.5, 6.8),
-    'LTS': (5.0, 5.9)
+    'FSI': (7.5, 6.4),
+    'LTS': (5.0, 6.0)
 }  # firing rate of shell neurons (mean, stdev)
 SHELL_FR = pd.DataFrame.from_dict(
     SHELL_FR, orient='index', columns=('mean', 'stdev')).rename_axis('pop_name')
@@ -756,6 +757,7 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
 
     def PSG(population='thalamus', seed_offset=100):
         seed = psg_seed + seed_offset
+        print("Using random seed %g in %s population." % (seed, population))
         return PoissonSpikeGenerator(population=population, seed=seed)
 
     std_stim_params = {'n_assemblies': n_assemblies}  # standard stimulus parameters
@@ -780,7 +782,7 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
                 std_stim_params[stim] = dict(firing_rate=Thal_burst_fr,
                     on_time=on_time, off_time=off_time, t_start=t_start, t_stop=t_stop)
                 if stim == 'short':
-                    std_stim_params[stim]['n_rounds'] = 2
+                    std_stim_params[stim]['n_rounds'] = 1
             fr_params = get_std_param(std_stim_params, stim)
             psg = get_psg_from_fr(PSG(), Thal_assy, fr_params)
             psg.to_sonata(os.path.join(input_path, "thalamus_" + stim + ".h5"))
