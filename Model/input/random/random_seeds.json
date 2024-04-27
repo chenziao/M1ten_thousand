@@ -1,20 +1,15 @@
 [
   {
     "net_seed": 123,
-    "psg_seed": 0,
-    "stimulus": [
-      "baseline",
-      "short",
-      "long"
-    ]
-  },
-  {
-    "net_seed": 123,
     "psg_seed": 1,
     "stimulus": [
       "baseline",
       "short",
-      "long"
+      "long",
+      "thalamus_ramp_a0_t1.0",
+      "thalamus_ramp_a0_t0.3",
+      "thalamus_ramp_a0_t3.0",
+      "thalamus_ramp_a0_t1.0_down"
     ]
   }
 ]

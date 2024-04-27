@@ -733,7 +733,7 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
                 Thal_nodes, nodes['cortex'].loc[PN_nodes])
             n_assemblies = len(Thal_assy)
             gird_id_file = os.path.join(input_path, "Grid_ids.csv")
-            np.savetxt(gird_id_file, grid_id, delimiter=",")
+            np.savetxt(gird_id_file, grid_id, fmt='%d', delimiter=",")
         else:
             rng = get_rng(seed=net_seed, seed_offset=100)
             Thal_assy, PN_assy = get_assembly(
