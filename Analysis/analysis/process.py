@@ -177,13 +177,14 @@ def group_spike_rate_to_xarray(spikes_df, time, group_ids,
 
 
 def unit_spike_rate_to_xarray(spikes_df, time, node_ids,
-                              frequeny=False, filt_sigma=0.):
+                              frequeny=False, filt_sigma=0., return_count=False):
     """Count units spike histogram
     spikes_df: dataframe of node ids and spike times
-    time: tuple of (start, stop, step) (ms)
+    time: Evenly spaced time points (ms), left edges of time bins
     node_ids: list of id of nodes considered
     frequeny: whether return spike frequency in Hz or count
     filt_sigma: sigma (ms) of Gaussian filter for smoothing
+    return_count: whether return spike count in addition, with dtype=int
     Return: 2D spike time histogram (node_ids-by-times)
     """
     idx = np.argsort(node_ids)
@@ -195,15 +196,16 @@ def unit_spike_rate_to_xarray(spikes_df, time, node_ids,
     dt = (time[-1] - time[0]) / (time.size - 1)
     t_bins = np.append(time, time[-1] + 1/dt)
     n_bins = np.append(node_ids_sort, node_ids_sort[-1])
-    spike_rate, _, _ = np.histogram2d(
+    spike_count, _, _ = np.histogram2d(
         spikes_df['node_ids'], spikes_df['timestamps'], bins=(n_bins, t_bins))
-    spike_rate = spike_rate[idx_inv, :]
+    spike_count = spike_count[idx_inv, :]
+    spike_rate = spike_count.copy() if return_count else spike_count
     if frequeny:
         spike_rate = 1000 / dt * spike_rate
     if filt_sigma:
         filt_sigma = (0, filt_sigma / dt)
         spike_rate = gaussian_filter(spike_rate, filt_sigma)
-    return spike_rate
+    return (spike_rate, spike_count.astype(int)) if return_count else spike_rate
 
 
 def combine_spike_rate(grp_rspk, dim, variables=None, index=slice(None)):
@@ -222,6 +224,8 @@ def combine_spike_rate(grp_rspk, dim, variables=None, index=slice(None)):
     grp_rspk = grp_rspk.sel(**dict(zip(dim, index)))
     if variables is None:
         variables = [var for var in grp_rspk if var != 'population_number']
+    elif isinstance(variables, str):
+        variables = [variables]
     combined_rspk = xr.Dataset()
     for var in variables:
         rspk_weighted = grp_rspk[var].weighted(grp_rspk.population_number)
@@ -328,3 +332,57 @@ def get_waves(da, fs, waves, transform, dim='time', component='amp', **kwargs):
         x[i][:] = comp_func(x_a)
     x = xr.concat(x, dim=pd.Index(waves.keys(), name='wave'))
     return x
+
+
+def exponential_spike_filter(spikes, tau, cut_val=1e-3, min_rate=None,
+                             normalize=False, last_jump=True, only_jump=False):
+    """Filter spike train (boolean/int array) with exponential response
+    spikes: spike count array (units, time bins)
+    tau: time constant of the exponential decay (normalized by time step)
+    cut_val: value at which to cutoff the tail of the exponential response
+    min_rate: minimum rate of spike (normalized by sampling rate). Default: 1/(9*tau)
+        It ensures the filtered values not less than min_val=exp(-1/(min_rate*tau)).
+        It also ensures the jump value not less than 1+min_val.
+        Specify min_rate=0 to set min_val to 0.
+    normalize: whether normalize response to have integral 1 for filtering
+    last_jump: whether return a time series with value at each time point equal
+        to the unnormalized filtered value at the last spike (jump value)
+    only_jump: whether return jump values only at spike times, 0 at non-spike time
+    """
+    spikes = np.asarray(spikes).astype(float)
+    if tau == 0:
+        filtered = spikes
+        if only_jump:
+            jump = spikes.copy()
+        elif last_jump:
+            jump = np.ones_like(filtered)
+    else:
+        shape = spikes.shape
+        if spikes.ndim == 1:
+            spikes = spikes[None, :]
+        min_val = np.exp(-9) if min_rate is None else \
+            (0 if min_rate <= 0 else np.exp(-1 / min_rate / tau))
+        t_cut = int(np.ceil(-np.log(cut_val) * tau))
+        response = np.exp(-np.arange(t_cut) / tau)[None, :]
+        filtered = ss.convolve(spikes, response, mode='full')
+        filtered = np.fmax(filtered[:, :shape[-1]], min_val)
+        if only_jump:
+            idx = spikes > 0
+            jump = np.where(idx, filtered, 0)
+            if min_val > 0:
+                jump[idx] = np.fmax(jump[idx], 1 + min_val)
+        elif last_jump:
+            min_val = 1 + min_val
+            jump = filtered.copy()
+            for jp, spks in zip(jump, spikes):
+                idx = np.nonzero(spks)[0].tolist() + [None]
+                jp[None:idx[0]] = min_val
+                for i in range(len(idx) - 1):
+                    jp[idx[i]:idx[i + 1]] = max(jp[idx[i]], min_val)
+        if normalize:
+            filtered /= np.sum(response)
+        filtered = filtered.reshape(shape)
+        if last_jump or only_jump:
+            jump = jump.reshape(shape)
+            filtered = (filtered, jump)
+    return filtered

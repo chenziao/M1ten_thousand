@@ -75,6 +75,7 @@ def firing_rate_histogram(pop_fr, pop_color, bins=30, min_fr=None,
 
 
 def xcorr_coeff(x, y, max_lag=None, dt=1., plot=True, ax=None):
+    """Cross-correlation between x and y with lags of x relative to y"""
     x = np.asarray(x)
     y = np.asarray(y)
     x = (x - x.mean()) / x.std()
