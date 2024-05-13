@@ -7,9 +7,11 @@ import warnings
 from bmtool.util.util import load_nodes_from_paths
 from scipy.ndimage import gaussian_filter
 from scipy.interpolate import interp1d
+from scipy.sparse import csr_matrix
+from functools import partial
 
 from analysis import  utils, process
-from build_input import get_populations
+from build_input import get_populations, t_start
 
 
 RESULT_PATH = "simulation_results"
@@ -19,6 +21,7 @@ ITN_FR_PATH = os.path.join(OUTPUT_PATH, 'ITN_fr')
 network_name = 'cortex'
 PN_pop_names = ['CP', 'CS']
 ITN_pop_names = ['FSI', 'LTS']
+T_START = t_start
 
 def set_variables(**kwargs):
     global_vars = globals()
@@ -34,33 +37,60 @@ def set_variables(**kwargs):
         os.mkdir(ITN_FR_PATH)
 
 
-def get_trials(filter=[], trial_list=None):
+def get_trials(filter=[], trials=None, revert_junction=False, exclude=None, exclude_kwargs={}):
     """Get name of trials from simulation result directory
     filter: str or nested list of str. Get trials with matching substrings
-        If is nested list, the inner lists apply union to the conditions
-        and the outer list apply intersection to the conditions.
-        E.g., [('a', 'b'), ('c', 'd'), 'e'], means (a OR b) AND (c OR d) AND e.
-    trial_list: list of trial names. If not specified, obtain from result directory
+        If it is nested list, apply intersection to the conditions in the inner
+        lists and then union to the outer list.
+        E.g., [('a', 'b'), ('c', 'd'), 'e'], means (a AND b) OR (c AND d) OR e.
+    trials: list of trial names. If not specified, obtain from result directory
+    revert_junction: whether revert the junction relation in the filter, i.e.,
+        apply union to the inner lists and then intersection to the outer list
+    exclude: if specified, used as `filter` to obtain trials need to be excluded
+    exclude_kwargs: additional keyword arguments for exclude
     """
-    if trial_list is None:
-        trial_list = [f for f in os.listdir(RESULT_PATH) if f[0] != '.']
+    if trials is None:
+        trials = [f for f in os.listdir(RESULT_PATH) if f[0] != '.']
     if isinstance(filter, str):
         filter = [[filter]]
     elif len(filter) == 0:
         filter = [filter]
-    ffilt = set(trial_list)
-    for filt in filter:
-        if isinstance(filt, str):
-            filt = [filt]
-        ffilt &= set(f for f in trial_list if any(s in f for s in filt))
-    trial_list = [f for f in trial_list if f in ffilt]
-    return trial_list
+    if revert_junction:
+        inner = any
+        outer = set.intersection
+        filt = set(trials)
+    else:
+        inner = all
+        outer = set.union
+        filt = set()
+    for ft in filter:
+        if isinstance(ft, str):
+            ft = [ft]
+        filt = outer(filt, set(f for f in trials if inner(s in f for s in ft)))
+    if exclude is not None:
+        filt = filt - set(get_trials(filter=exclude, **exclude_kwargs))
+    trials = [f for f in trials if f in filt]
+    return trials
 
 
 def get_file(trial_name):
     PN_spk_file = os.path.join(PN_SPK_PATH, trial_name + '.npz')
     ITN_fr_file = os.path.join(ITN_FR_PATH, trial_name + '.nc')
     return PN_spk_file, ITN_fr_file
+
+
+def load_trial(trial_name, pop_names):
+    # Load trial information
+    trial_path = os.path.join(RESULT_PATH, trial_name)
+    _, paths, stim_info, _ = utils.get_trial_info(trial_path)
+    _, NODE_FILES, SPIKE_FILE = paths
+    t_stop, _, stim_params = stim_info
+    t_start = stim_params.get('t_start', T_START)
+    # Load trial data
+    node_df = load_nodes_from_paths(NODE_FILES)[network_name]
+    pop_ids = get_populations(node_df, pop_names, only_id=True)
+    spikes_df = utils.load_spikes_to_df(SPIKE_FILE, network_name)
+    return pop_ids, spikes_df, t_start, t_stop
 
 
 def preprocess(trial_name, fs_ct=400., fs_fr=50., filt_sigma=20.0, overwrite=False):
@@ -76,19 +106,9 @@ def preprocess(trial_name, fs_ct=400., fs_fr=50., filt_sigma=20.0, overwrite=Fal
     process_ITN = overwrite or not os.path.isfile(ITN_fr_file)
     if not (process_PN or process_ITN):
         return
-
-    # Load trial information
-    trial_path = os.path.join(RESULT_PATH, trial_name)
-    _, paths, stim_info, _ = utils.get_trial_info(trial_path)
-    _, NODE_FILES, SPIKE_FILE = paths
-    t_stop, _, stim_params = stim_info
-    t_start = stim_params['t_start']
-
-    # Load trial data
     pop_names = PN_pop_names * process_PN + ITN_pop_names * process_ITN
-    node_df = load_nodes_from_paths(NODE_FILES)[network_name]
-    pop_ids = get_populations(node_df, pop_names, only_id=True)
-    spikes_df = utils.load_spikes_to_df(SPIKE_FILE, network_name)
+    # Load trial info and data
+    pop_ids, spikes_df, t_start, t_stop = load_trial(trial_name, pop_names)
 
     # Parameters
     time_ct_edge = np.linspace(0, 1000 * t_stop, int(t_stop * fs_ct), endpoint=False)
@@ -160,29 +180,369 @@ def PN_stp_weights(PN_spk_file, tau, data='fr'):
         fr_tot = np.mean(unit_fr, axis=0)
     return w_stp, fr_tot
 
-        
+
+def get_ITN_data(ITN_fr_file, lag_range):
+    ITN_fr = xr.open_dataset(ITN_fr_file)
+    lags = np.round(np.array(lag_range) / 1000 * ITN_fr.fs).astype(int)
+    lags = np.arange(lags[0], lags[1] + 1)
+    t_lags = 1000 / ITN_fr.fs * lags
+    i_start = ITN_fr.i_start + lags
+    T = ITN_fr.time.size - i_start[-1]
+    lag_fr = []
+    for p in ITN_fr.population:
+        itn_fr = ITN_fr.spike_rate.sel(population=p).values
+        lag_fr.append(np.column_stack([itn_fr[i:i + T] for i in i_start]))
+    lag_fr = xr.DataArray(lag_fr, name='lagged firing rate', coords=dict(
+        population=ITN_fr.population, time=ITN_fr.time[:T], lags=t_lags))
+    return lag_fr, T, ITN_fr.attrs
+
+
+def get_PN_data(PN_spk_file, tau, T):
+    w_stp, fr_tot = PN_stp_weights(PN_spk_file, tau, data='fr')
+    w_stp = np.take(w_stp, range(T), axis=-1)
+    fr_tot = fr_tot[:T]
+    return w_stp, fr_tot
+
+
 def get_stp_data(trial_name, tau, lag_range):
     """Load preprocessed ITN firing rate data of given trial name
     tau: exponential filter time constant (second), scalar or array
     lag_range: maximum time lag range (ms)
     """
     PN_spk_file, ITN_fr_file = get_file(trial_name)
-    w_stp, fr_tot = PN_stp_weights(PN_spk_file, tau, data='fr')
-    ITN_fr = xr.open_dataset(ITN_fr_file)
-
-    lags = np.round(np.array(lag_range) / 1000 * ITN_fr.fs).astype(int)
-    lags = np.arange(lags[0], lags[1] + 1)
-    t_lags = 1000 / ITN_fr.fs * lags
-
-    T = w_stp.shape[-1] - lags[-1]
-    w_stp = np.take(w_stp, range(T), axis=-1)
-    fr_tot = fr_tot[:T]
-    i_start = ITN_fr.i_start + lags
-
-    lag_fr = []
-    for p in ITN_fr.population:
-        itn_fr = ITN_fr.spike_rate.sel(population=p).values
-        lag_fr.append(np.column_stack([itn_fr[i:i + T] for i in i_start]))
-    lag_fr = xr.DataArray(lag_fr, coords={'population': ITN_fr.population, 'time': ITN_fr.time[:T], 'lags': t_lags})
+    lag_fr, T, _ = get_ITN_data(ITN_fr_file, lag_range)
+    w_stp, fr_tot = get_PN_data(PN_spk_file, tau, T)
     return w_stp, fr_tot, lag_fr
+
+
+class STP_Jump(object):
+    """Class for simulating STP dynamic as jump process"""
+    def __init__(self, **params):
+        # set parameters
+        self.params = ('tau_f', 'tau_d', 'U')
+        for p in self.params:
+            setattr(self, p, params.get(p))
+        # set state variables
+        vars = ('t', 'dt', 'u', 'R', 'P')
+        self.var_idx = {var: i for i, var in enumerate(vars)}
+        for var in vars:
+            setattr(self, var, partial(self.get_state, var=var))
+        self.states = None
+
+    def set_params(self, tau_f=None, tau_d=None, U=None, **kwargs):
+        """Set dynamic parameters"""
+        if tau_f is not None:
+            self.tau_f = max(tau_f, 0.)
+        if tau_d is not None:
+            self.tau_d = max(tau_d, 0.)
+        if U is not None:
+            assert(U > 0 and U <= 1)
+            self.U = U
+            # set u0, P0 if using u0=U by default
+            iu = self.var_idx['u']
+            if self.states is not None and self.states[0][iu, 0] < 0:
+                iP = self.var_idx['P']
+                P = U * self.states[0][self.var_idx['R'], 0] 
+                for states in self.states:
+                    states[iu, 0] = U
+                    states[iP, 0] = P
+        notspecified = [p for p in self.params if getattr(self, p) is None]
+        if notspecified:
+            raise ValueError('Parameters ' + ', '.join(notspecified) + ' not specified')
+        tau_f, tau_d, U = self.tau_f, self.tau_d, self.U
+        if tau_f:
+            Uc = 1 - U
+            def update_u(dt, u):
+                return U + Uc * (u * np.exp(-dt / tau_f))
+        else:
+            update_u = lambda *_: U
+        self.update_u = update_u
+        if tau_d:
+            def update_R(dt, R, P):
+                return 1 - (1 - (R - P)) * np.exp(-dt / tau_d)
+        else:
+            update_R = lambda *_: 1.
+        self.update_R = update_R
+
+    def update(self, dt, u, R, P):
+        """Update u after jump, R before jump, and P between the two jumps"""
+        # positional arguments need to follow the order in self.var_idx
+        u = self.update_u(dt, u)
+        R = self.update_R(dt, R, P)
+        P = u * R
+        return u, R, P
+
+    def initialize(self, tspk, nid=None, N=None, assume_sorted=True,
+                   u0=None, R0=1.0, t0=0.):
+        """Set up spike times of the units
+        tspk: if `nid` not specified, `tspk` is a list of spike trains of N
+            units, where each spike train is a list of spike times (assume sorted)
+        nid: if spicified, `tspk` is the list of spike times of all units, `nid`
+            is the list of unit ids at corresponding spike times, with same size
+            as `tspk`. The ids in `nid` should range from 0 to N - 1, where the
+            number of units N 
+        N: number of units. If not spcified, is inferred from the maximum value
+            of `nid` or from the len of `tspk` if `nid` not specified.
+        assume_sorted: whether assume tspk is already sorted
+        u0, R0, t0: variables for initial spike before start time
+        """
+        assert(len(tspk) > 0)
+        if nid is None:
+            self.N = len(tspk) if N is None else N
+            if N is not None:
+                tspk = tspk[:N]
+                if not assume_sorted:
+                    tspk = [sorted(t) for t in tspk]
+        else:
+            self.N = max(nid) + 1 if N is None else N
+            if not assume_sorted:
+                nid, tspk = zip(*sorted(zip(nid, tspk)))
+            n = 0
+            idx = [0]
+            for i, j in enumerate(list(nid) + [len(nid)]):
+                while j > n:
+                    n += 1
+                    idx.append(i)
+                if n >= self.N:
+                    break
+            tspk = [tspk[i:j] for i, j in zip(idx[:-1], idx[1:])]
+        if self.states is None:
+            # initialize state variables
+            if u0 is None:
+                u0 = -1 if self.U is None else self.U 
+            else:
+                assert(u0 >= 0 and u0 <= 1)
+            assert(R0 >= 0 and R0 <= 1 and t0 <= 0)
+            state0 = dict(t=t0, dt=0., u=u0, R=R0, P=u0 * R0)
+            vi = self.var_idx
+            it, idt = vi['t'], vi['dt']
+            state0 = [state0[var] for var in vi]
+            self.states = []
+            for ts in tspk:
+                states = np.empty((len(vi), len(ts) + 1))
+                states[it, 1:] = ts
+                states[:, 0] = state0
+                states[idt, 1:] = np.diff(states[it])
+                self.states.append(states)
+        return self
+
+    def simulate(self, tspk=None, nid=None, N=None, assume_sorted=True,
+                 u0=None, R0=1.0, t0=0., **params):
+        """Simulate STP dynamic as jump process"""
+        if tspk is not None:
+            self.initialize(tspk, nid=nid, N=N, assume_sorted=assume_sorted,
+                            u0=u0, R0=R0, t0=t0)
+        params = {**{p: getattr(self, p, None) for p in self.params}, **params}
+        self.set_params(**params)
+        for states in self.states:
+            for i in range(states.shape[1] - 1):
+                states[2:, i + 1] = self.update(*states[1:, i])
+        return self
+
+    def get_state(self, nid=None, var='P', concat=False):
+        """Get state variables"""
+        idx = self.var_idx[var]
+        nid = np.arange(self.N) if nid is None else np.asarray(nid)
+        states = [self.states[i][idx, 1:] for i in nid.ravel()]
+        if concat or nid.ndim == 0:
+            states = np.concatenate(states)
+        return states
+
+
+class Simple_Jump(object):
+    """Class for simulating simplified jump process to approximate STP dynamic"""
+    def __init__(self, **params):
+        # set parameters
+        self.params = ('tau_f', 'tau_d')
+        for p in self.params:
+            setattr(self, p, params.get(p))
+        # set state variables
+        vars = ('t', 'dt', 'sf', 'sd')
+        self.var_idx = {var: i for i, var in enumerate(vars)}
+        for var in vars:
+            setattr(self, var, partial(self.get_state, var=var))
+        # set estimated variables
+        ests = ('P', 'u', 'R')
+        for var in ests:
+            setattr(self, var, partial(self.get_est, var=var))
+        self.states = None
+
+    def set_params(self, tau_f=None, tau_d=None, **kwargs):
+        """Set dynamic parameters"""
+        if tau_f is not None:
+            self.tau_f = max(tau_f, 0.)
+        if tau_d is not None:
+            self.tau_d = max(tau_d, 0.)
+        notspecified = [p for p in self.params if getattr(self, p) is None]
+        if notspecified:
+            raise ValueError('Parameters ' + ', '.join(notspecified) + ' not specified')
+        self.update_f = self.get_update_s(self.tau_f)
+        self.update_d = self.get_update_s(self.tau_d)
+
+    @staticmethod
+    def get_update_s(tau):
+        if tau:
+            def update_s(dt, s):
+                return 1 + s * np.exp(-dt / tau)
+        else:
+            update_s = lambda *_: 1.
+        return update_s
+
+    def update(self, dt, sf, sd):
+        """Update u after jump, R before jump, and P between the two jumps"""
+        # positional arguments need to follow the order in self.var_idx
+        sf = self.update_f(dt, sf)
+        sd = self.update_d(dt, sd)
+        return sf, sd
+
+    def initialize(self, tspk, nid=None, N=None, assume_sorted=True,
+                   s0=1., t0=0.):
+        """Set up spike times of the units
+        tspk: if `nid` not specified, `tspk` is a list of spike trains of N
+            units, where each spike train is a list of spike times (assume sorted)
+        nid: if spicified, `tspk` is the list of spike times of all units, `nid`
+            is the list of unit ids at corresponding spike times, with same size
+            as `tspk`. The ids in `nid` should range from 0 to N - 1, where the
+            number of units N 
+        N: number of units. If not spcified, is inferred from the maximum value
+            of `nid` or from the len of `tspk` if `nid` not specified.
+        assume_sorted: whether assume tspk is already sorted
+        s0, t0: variables for initial spike before start time
+        """
+        assert(len(tspk) > 0)
+        if nid is None:
+            self.N = len(tspk) if N is None else N
+            if N is not None:
+                tspk = tspk[:N]
+                if not assume_sorted:
+                    tspk = [sorted(t) for t in tspk]
+        else:
+            self.N = max(nid) + 1 if N is None else N
+            if not assume_sorted:
+                nid, tspk = zip(*sorted(zip(nid, tspk)))
+            n = 0
+            idx = [0]
+            for i, j in enumerate(list(nid) + [len(nid)]):
+                while j > n:
+                    n += 1
+                    idx.append(i)
+                if n >= self.N:
+                    break
+            tspk = [tspk[i:j] for i, j in zip(idx[:-1], idx[1:])]
+        if self.states is None:
+            # initialize state variables
+            assert(s0 >= 1 and t0 <= 0)
+            state0 = dict(t=t0, dt=0., sf=s0, sd=s0)
+            vi = self.var_idx
+            it, idt = vi['t'], vi['dt']
+            state0 = [state0[var] for var in vi]
+            self.states = []
+            for ts in tspk:
+                states = np.empty((len(vi), len(ts) + 1))
+                states[it, 1:] = ts
+                states[:, 0] = state0
+                states[idt, 1:] = np.diff(states[it])
+                self.states.append(states)
+        return self
+
+    def simulate(self, tspk=None, nid=None, N=None, assume_sorted=True,
+                 s0=1., t0=0., **params):
+        """Simulate STP dynamic as simplified jump process"""
+        if tspk is not None:
+            self.initialize(tspk, nid=nid, N=N, assume_sorted=assume_sorted,
+                            s0=s0, t0=t0)
+        params = {**{p: getattr(self, p, None) for p in self.params}, **params}
+        self.set_params(**params)
+        for states in self.states:
+            for i in range(states.shape[1] - 1):
+                states[2:, i + 1] = self.update(*states[1:, i])
+        return self
+
+    def get_state(self, nid=None, var='P', concat=False):
+        """Get state variables"""
+        idx = self.var_idx[var]
+        nid = np.arange(self.N) if nid is None else np.asarray(nid)
+        states = [self.states[i][idx, 1:] for i in nid.ravel()]
+        if concat or nid.ndim == 0:
+            states = np.concatenate(states)
+        return states
+
+    def run_est(self, U, return_uR=False):
+        """Estimate P given U after simulation is done"""
+        if self.states is None:
+            raise ValueError('Simulation has not run yet.')
+        assert(U > 0 and U <= 1)
+        Ur = (1 - U) / U
+        if self.tau_f and Ur:
+            def F(sf_cur, sf_pre):
+                return 1 + (sf_cur - 1) / (1 + sf_pre / Ur)
+        else: 
+            F = lambda *_: 1.
+        if self.tau_d:
+            if self.tau_f:
+                def D(sd_cur, sd_pre, sf_pre):
+                    return 1 - (sd_cur - 1 ) / (sd_pre + Ur / sf_pre)
+            else:
+                def D(sd_cur, sd_pre, sf_pre):
+                    return 1 - (sd_cur - 1 ) / (sd_pre + Ur)
+        else:
+            D = lambda *_: 1.
+        i_f = self.var_idx['sf']
+        i_d = self.var_idx['sd']
+        P = []
+        if return_uR:
+            self._u, self._R = u, R = [], []
+            def est(sf, sd, n):
+                global P_
+                u_, R_, P_ = (np.empty(n) for _ in range(3))
+                u_[:] = U * F(sf[1:], sf[:-1])
+                R_[:] = D(sd[1:], sd[:-1], sf[:-1])
+                u.append(u_)
+                R.append(R_)
+                return u_, R_
+        else:
+            self._u, self._R = None, None
+            def est(sf, sd, n):
+                global P_
+                P_ = np.empty(n)
+                u_ = U * F(sf[1:], sf[:-1])
+                R_ = D(sd[1:], sd[:-1], sf[:-1])
+                return u_, R_
+        for states in self.states:
+            u_, R_ = est(states[i_f, :], states[i_d, :], states.shape[1] - 1)
+            P_[:] = u_ * R_
+            P.append(P_)
+        self._P = P
+        self.U = U
+
+    def get_est(self, nid=None, var='P', concat=False):
+        """Get estimated variables"""
+        dat = getattr(self, '_' + var, None)
+        if dat is None:
+            est = None
+            print("Warning: " + var + " was not estimated")
+        else:
+            nid = np.arange(self.N) if nid is None else np.asarray(nid)
+            est = [dat[i] for i in nid.ravel()]
+            if concat or nid.ndim == 0:
+                est = np.concatenate(est)
+        return est
+
+
+def bin_spike_indices(tspk, time_edge):
+    """Bin spike times and return indices of spikes in each bin
+    tspk: spike times
+    time_edge: left edges of time bins
+    """
+    bin_idx = np.digitize(tspk, time_edge) - 1  # bin index of each spike
+    spk_idx = np.arange(bin_idx.size)  # spike indices
+    S = csr_matrix((spk_idx, [bin_idx, spk_idx]), shape=(time_edge.size, spk_idx.size))
+    return np.split(S.data, S.indptr[1:-1])
+
+
+def simulate_stp(stp_objs, **syn_params):
+    """Run simulate for all stp objects in stp_objs with parameters in syn_params"""
+    for stp_jump in stp_objs:
+        stp_jump.simulate(**syn_params)
+
 

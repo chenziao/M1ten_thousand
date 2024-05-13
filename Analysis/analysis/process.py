@@ -350,14 +350,14 @@ def exponential_spike_filter(spikes, tau, cut_val=1e-3, min_rate=None,
     only_jump: whether return jump values only at spike times, 0 at non-spike time
     """
     spikes = np.asarray(spikes).astype(float)
-    if tau == 0:
+    shape = spikes.shape
+    if tau <= 0:
         filtered = spikes
         if only_jump:
             jump = spikes.copy()
         elif last_jump:
-            jump = np.ones_like(filtered)
+            jump = np.ones(shape)
     else:
-        shape = spikes.shape
         if spikes.ndim == 1:
             spikes = spikes[None, :]
         min_val = np.exp(-9) if min_rate is None else \
@@ -382,7 +382,7 @@ def exponential_spike_filter(spikes, tau, cut_val=1e-3, min_rate=None,
         if normalize:
             filtered /= np.sum(response)
         filtered = filtered.reshape(shape)
-        if last_jump or only_jump:
-            jump = jump.reshape(shape)
-            filtered = (filtered, jump)
+    if last_jump or only_jump:
+        jump = jump.reshape(shape)
+        filtered = (filtered, jump)
     return filtered
