@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import os
+import json
 import warnings
 
 from bmtool.util.util import load_nodes_from_paths
@@ -16,8 +17,7 @@ from build_input import get_populations, t_start
 
 RESULT_PATH = "simulation_results"
 OUTPUT_PATH = "analysis_results"
-PN_SPK_PATH = os.path.join(OUTPUT_PATH, 'PN_spikes')
-ITN_FR_PATH = os.path.join(OUTPUT_PATH, 'ITN_fr')
+
 network_name = 'cortex'
 PN_pop_names = ['CP', 'CS']
 ITN_pop_names = ['FSI', 'LTS']
@@ -28,13 +28,21 @@ def set_variables(**kwargs):
     for key, value in kwargs.items():
         global_vars[key] = value
     # set up data path
-    global PN_SPK_PATH, ITN_FR_PATH
+    global PN_SPK_PATH, ITN_FR_PATH, TSPK_PATH, BIN_SPK_PATH
     PN_SPK_PATH = os.path.join(OUTPUT_PATH, 'PN_spikes')
     ITN_FR_PATH = os.path.join(OUTPUT_PATH, 'ITN_fr')
+    TSPK_PATH = os.path.join(OUTPUT_PATH, 'spike_times')
+    BIN_SPK_PATH = os.path.join(OUTPUT_PATH, 'binned_spikes')
     if not os.path.isdir(PN_SPK_PATH):
         os.mkdir(PN_SPK_PATH)
     if not os.path.isdir(ITN_FR_PATH):
         os.mkdir(ITN_FR_PATH)
+    if not os.path.isdir(TSPK_PATH):
+        os.mkdir(TSPK_PATH)
+    if not os.path.isdir(BIN_SPK_PATH):
+        os.mkdir(BIN_SPK_PATH)
+
+set_variables()
 
 
 def get_trials(filter=[], trials=None, revert_junction=False, exclude=None, exclude_kwargs={}):
@@ -174,10 +182,10 @@ def PN_stp_weights(PN_spk_file, tau, data='fr'):
         else:
             fr_exp_filt = [process.exponential_spike_filter(unit_fr, tau=t * f['fs_fr'],
                 min_rate=0, normalize=True, last_jump=False) for t in tau.ravel()]
-        unit_fr = unit_fr[:, i_start:]
-        fr_exp_filt = np.array(fr_exp_filt)[:, :, i_start:].reshape(tau.shape + unit_fr.shape)
-        w_stp = np.mean(unit_fr * fr_exp_filt, axis=-2)
-        fr_tot = np.mean(unit_fr, axis=0)
+    unit_fr = unit_fr[:, i_start:]
+    fr_exp_filt = np.array(fr_exp_filt)[:, :, i_start:].reshape(tau.shape + unit_fr.shape)
+    w_stp = np.mean(unit_fr * fr_exp_filt, axis=-2)
+    fr_tot = np.mean(unit_fr, axis=0)
     return w_stp, fr_tot
 
 
@@ -529,6 +537,97 @@ class Simple_Jump(object):
         return est
 
 
+def get_pop_stp_info(pre_pop_names, ITN_pop_names):
+    # Get synapse parameters
+    syn_types = {(p, i): p + '2' + i for p in pre_pop_names for i in ITN_pop_names}
+    _, _, _, config_hp = utils.get_trial_info(os.path.join(RESULT_PATH, 'baseline'))
+    SYN_PATH = config_hp.get_attr('components', 'synaptic_models_dir')
+
+    syn_params = {}
+    for syn, syn_file in syn_types.items():
+        with open(os.path.join(SYN_PATH, syn_file + '.json'), 'r') as f:
+            syn_p = json.load(f)
+        syn_params[syn] = dict(
+            tau_f=syn_p['Fac'], tau_d=syn_p['Dep'], U=syn_p['Use'])
+
+    # Get node ids of presynaptic cell types
+    pre_ids, _, _, _ = load_trial('baseline', pre_pop_names)
+    pre_ids_idx = {}
+    for p, ids in pre_ids.items():
+        ids = sorted(ids)
+        pre_ids_idx[p] = pd.DataFrame(dict(index=range(len(ids))), index=pd.Series(ids, name='node_id'))
+    return syn_types, syn_params, pre_ids_idx
+
+
+def setup_pop_stp(trial_name, pop_stp_info, attrs, overwrite=False):
+    syn_types, syn_params, pre_ids_idx = pop_stp_info
+    tspk_files = {}
+    bin_spk_files = {}
+    writefile = {'tspk': {}, 'bin_spk': {}}
+    for syn, syn_type in syn_types.items():
+        tspk_files[syn] = os.path.join(TSPK_PATH, trial_name + '_' + syn_type + '.npz')
+        writefile['tspk'][syn] = overwrite or not os.path.isfile(tspk_files[syn])
+        pre = syn[0]
+        bin_spk_files[pre] = os.path.join(BIN_SPK_PATH, trial_name + '_' + pre + '.npz')
+        writefile['bin_spk'][pre] = overwrite or not os.path.isfile(bin_spk_files[pre])
+    process_tspk = any(writefile['tspk'].values())
+    process_bin_spk = any(writefile['bin_spk'].values())
+
+    # load spike data
+    if process_tspk or process_bin_spk:
+        _, spk_df, t_start, t_stop = load_trial(trial_name, pre_ids_idx)
+        spk_df = spk_df.set_index('node_ids').rename(columns={'timestamps': 'tspk'})
+
+    # get spike times for each cell type
+    if process_tspk:
+        pop_tspk = {}
+        for p, idx in pre_ids_idx.items():
+            ids = idx.index.intersection(spk_df.index)
+            tspk = spk_df.loc[ids]
+            tspk['nid'] = idx.loc[tspk.index, 'index']
+            pop_tspk[p] = tspk
+
+    # create stp jump process objects
+    stp_objs = {}
+    for syn in syn_types:
+        file = tspk_files[syn]
+        stp_params = syn_params[syn]
+        stp_jump = STP_Jump()
+        if writefile['tspk'][syn]:
+            pre = syn[0]
+            tspk, nid = pop_tspk[pre]['tspk'], pop_tspk[pre]['nid']
+            stp_jump.initialize(tspk=tspk, nid=nid, N=pre_ids_idx[pre].size, assume_sorted=False)
+            save_lil(file, lil={'tspk': stp_jump.t()}, add_vars=stp_params)
+        else:
+            tspk, params = load_lil(file)
+            if any(stp_params[key] != val for key, val in params.items()):
+                print("Warning: using different STP parameters")
+                print(params)
+                stp_params.update(params)
+            stp_jump.initialize(tspk=tspk['tspk'], assume_sorted=True)
+        stp_jump.set_params(**stp_params)
+        stp_objs[syn] = stp_jump
+
+    # bin spike times
+    if process_bin_spk:
+        fs = attrs['fs']
+        i_start = attrs['i_start']
+        time_edge = np.linspace(0, 1000 * t_stop, int(t_stop * fs), endpoint=False)
+    bin_spk_idx = {}
+    for syn, stp_jump in stp_objs.items():
+        pre = syn[0]
+        if pre not in bin_spk_idx:
+            file = bin_spk_files[pre]
+            if writefile['bin_spk'][pre]:
+                t = stp_jump.t(concat=True)
+                bin_spk = bin_spike_indices(t, time_edge)[i_start:]
+                save_lil(file, lil={'bin_spk': bin_spk})
+            else:
+                bin_spk = load_lil(file)[0]['bin_spk']
+            bin_spk_idx[pre] = bin_spk
+    return stp_objs, bin_spk_idx
+
+
 def bin_spike_indices(tspk, time_edge):
     """Bin spike times and return indices of spikes in each bin
     tspk: spike times
@@ -540,9 +639,32 @@ def bin_spike_indices(tspk, time_edge):
     return np.split(S.data, S.indptr[1:-1])
 
 
+def save_lil(file, lil={}, add_vars={}):
+    """Save row-based List of Lists array"""
+    xs, idx = {}, {}
+    for key, x in lil.items():
+        xs[key] = np.concatenate(x)
+        idx[key + '_idx'] = np.insert(np.cumsum(list(map(len, x))), 0, 0)
+    np.savez_compressed(file, **xs, **idx, **add_vars)
+
+
+def load_lil(file):
+    lil, add_vars = {}, {}
+    with np.load(file) as f:
+        for key, val in f.items():
+            if key.endswith('_idx'):
+                key = key.replace('_idx', '')
+                lil[key] = val
+            else:
+                add_vars[key] = val
+    for key, idx in lil.items():
+        x = add_vars.pop(key)
+        lil[key] = [x[i:j] for i, j in zip(idx[:-1], idx[1:])]
+    return lil, add_vars
+
+
 def simulate_stp(stp_objs, **syn_params):
     """Run simulate for all stp objects in stp_objs with parameters in syn_params"""
     for stp_jump in stp_objs:
         stp_jump.simulate(**syn_params)
-
 
