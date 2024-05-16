@@ -128,39 +128,30 @@ def preprocess(trial_name, fs_ct=400., fs_fr=50., filt_sigma=20.0, overwrite=Fal
     time_fr = time_fr[(time_fr >= time_ct[0]) & (time_fr <= time_ct[-1])]
     i_start_fr = pd.Index(time_fr).get_indexer([1000 * t_start], method='bfill')[0]
 
-    with warnings.catch_warnings():
-        warnings.filterwarnings('ignore')
+    # PN units spike counts and firing rate
+    if process_PN:
+        PN_node_ids = np.concatenate([pop_ids[p] for p in PN_pop_names])
+        unit_fr, unit_ct = process.unit_spike_rate_to_xarray(spikes_df, time_ct_edge,
+            PN_node_ids, frequeny=True, filt_sigma=filt_sigma, return_count=True)
+        unit_fr = interp1d(time_ct, unit_fr, axis=1, assume_sorted=True)(time_fr)
+        PN_spk = dict(
+            unit_ct=unit_ct, time_ct=time_ct, fs_ct=fs_ct, i_start_ct=i_start_ct,
+            unit_fr=unit_fr, time_fr=time_fr, fs_fr=fs_fr, i_start_fr=i_start_fr,
+            nodes=PN_node_ids, gauss_filt_sigma=filt_sigma, t_start=t_start
+        )
+        np.savez_compressed(PN_spk_file, **PN_spk)
 
-        # PN units spike counts and firing rate
-        if process_PN:
-            PN_node_ids = [pop_ids[p] for p in PN_pop_names]
-            pop_slice = np.cumsum([0] + list(map(len, PN_node_ids))) 
-            pop_slice = dict(zip(PN_pop_names, zip(pop_slice[:-1], pop_slice[1:])))
-            PN_node_ids = np.concatenate(PN_node_ids)
-            unit_fr, unit_ct = process.unit_spike_rate_to_xarray(spikes_df, time_ct_edge,
-                PN_node_ids, frequeny=True, filt_sigma=filt_sigma, return_count=True)
-            unit_fr = interp1d(time_ct, unit_fr, axis=1, assume_sorted=True)(time_fr)
-            PN_spk = dict(
-                unit_ct=unit_ct, time_ct=time_ct, fs_ct=fs_ct, i_start_ct=i_start_ct,
-                unit_fr=unit_fr, time_fr=time_fr, fs_fr=fs_fr, i_start_fr=i_start_fr,
-                nodes=PN_node_ids, gauss_filt_sigma=filt_sigma, t_start=t_start
-            )
-            np.savez_compressed(PN_spk_file, **PN_spk)
-
-        # ITNs firing rate with gauss smoothing
-        if process_ITN:
-            ITN_rspk = process.group_spike_rate_to_xarray(spikes_df, time_ct_edge,
-                {p: pop_ids[p] for p in ITN_pop_names}, group_dims='population')
-            axis = ITN_rspk.spike_rate.dims.index('time')
-            sigma = np.zeros(ITN_rspk.spike_rate.ndim)
-            sigma[axis] = filt_sigma * fs_ct / 1000
-            ITN_rspk.spike_rate[:] = gaussian_filter(ITN_rspk.spike_rate, sigma)
-            ITN_rspk = ITN_rspk.spike_rate.interp({'time': time_fr}, assume_sorted=True)\
-                .to_dataset(name='spike_rate')\
-                .assign(population_number=ITN_rspk.population_number)\
-                .assign_attrs(gauss_filt_sigma=filt_sigma,
-                              fs=fs_fr, t_start=t_start, i_start=i_start_fr)
-            ITN_rspk.to_netcdf(ITN_fr_file)
+    # ITNs firing rate with gauss smoothing
+    if process_ITN:
+        ITN_rspk = process.group_spike_rate_to_xarray(spikes_df, time_ct_edge,
+            {p: pop_ids[p] for p in ITN_pop_names}, group_dims='population')
+        axis = ITN_rspk.spike_rate.dims.index('time')
+        sigma = np.zeros(ITN_rspk.spike_rate.ndim)
+        sigma[axis] = filt_sigma * fs_ct / 1000
+        ITN_rspk.spike_rate[:] = gaussian_filter(ITN_rspk.spike_rate, sigma)
+        ITN_rspk = ITN_rspk.assign_attrs(gauss_filt_sigma=filt_sigma,
+            fs=fs_ct, t_start=t_start, i_start=i_start_ct)
+        ITN_rspk.to_netcdf(ITN_fr_file)
 
 
 def PN_stp_weights(PN_spk_file, tau, data='fr'):
@@ -189,37 +180,42 @@ def PN_stp_weights(PN_spk_file, tau, data='fr'):
     return w_stp, fr_tot
 
 
-def get_ITN_data(ITN_fr_file, lag_range):
-    ITN_fr = xr.open_dataset(ITN_fr_file)
-    lags = np.round(np.array(lag_range) / 1000 * ITN_fr.fs).astype(int)
+def get_ITN_data(trial_name, lag_range):
+    PN_spk_file, ITN_fr_file = get_file(trial_name)
+    with np.load(PN_spk_file) as f:
+        fs = f['fs_fr']
+        time_fr = f['time_fr']
+        i_start = f['i_start_fr']
+        attrs = dict(fs=fs, i_start=i_start)
+    lags = np.round(np.array(lag_range) / 1000 * fs).astype(int)
     lags = np.arange(lags[0], lags[1] + 1)
-    t_lags = 1000 / ITN_fr.fs * lags
-    i_start = ITN_fr.i_start + lags
-    T = ITN_fr.time.size - i_start[-1]
+    t_lags = 1000 / fs * lags
+    i_start = i_start + lags
+    T = time_fr.size - i_start[-1]
+
+    ITN_fr = xr.open_dataset(ITN_fr_file).spike_rate
+    coords, dims = {**ITN_fr.coords, 'time': time_fr}, ITN_fr.dims
+    ITN_fr = xr.DataArray(interp1d(ITN_fr.time, ITN_fr, axis=dims.index('time'),
+        assume_sorted=True)(time_fr), coords=coords, dims=dims)
     lag_fr = []
     for p in ITN_fr.population:
-        itn_fr = ITN_fr.spike_rate.sel(population=p).values
+        itn_fr = ITN_fr.sel(population=p).values
         lag_fr.append(np.column_stack([itn_fr[i:i + T] for i in i_start]))
     lag_fr = xr.DataArray(lag_fr, name='lagged firing rate', coords=dict(
-        population=ITN_fr.population, time=ITN_fr.time[:T], lags=t_lags))
-    return lag_fr, T, ITN_fr.attrs
+        population=ITN_fr.population, time=time_fr[:T], lags=t_lags))
+    return lag_fr, T, attrs
 
 
-def get_PN_data(PN_spk_file, tau, T):
-    w_stp, fr_tot = PN_stp_weights(PN_spk_file, tau, data='fr')
-    w_stp = np.take(w_stp, range(T), axis=-1)
-    fr_tot = fr_tot[:T]
-    return w_stp, fr_tot
-
-
-def get_stp_data(trial_name, tau, lag_range):
+def get_stp_data(trial_name, tau, lag_range, data='fr'):
     """Load preprocessed ITN firing rate data of given trial name
     tau: exponential filter time constant (second), scalar or array
     lag_range: maximum time lag range (ms)
     """
-    PN_spk_file, ITN_fr_file = get_file(trial_name)
-    lag_fr, T, _ = get_ITN_data(ITN_fr_file, lag_range)
-    w_stp, fr_tot = get_PN_data(PN_spk_file, tau, T)
+    lag_fr, T, _ = get_ITN_data(trial_name, lag_range)
+    PN_spk_file, _ = get_file(trial_name)
+    w_stp, fr_tot = PN_stp_weights(PN_spk_file, tau, data=data)
+    w_stp = np.take(w_stp, range(T), axis=-1)
+    fr_tot = fr_tot[:T]
     return w_stp, fr_tot, lag_fr
 
 
