@@ -11,7 +11,7 @@ from scipy.interpolate import interp1d
 from scipy.sparse import csr_matrix
 from functools import partial
 
-from analysis import  utils, process
+from analysis import  plot, utils, process
 from build_input import get_populations, t_start
 
 
@@ -22,17 +22,21 @@ network_name = 'cortex'
 PN_pop_names = ['CP', 'CS']
 ITN_pop_names = ['FSI', 'LTS']
 T_START = t_start
+# cross correlation
+pop_groups = {'PN': PN_pop_names, 'ITN': ITN_pop_names}
+elec_id = 0
 
 def set_variables(**kwargs):
     global_vars = globals()
     for key, value in kwargs.items():
         global_vars[key] = value
     # set up data path
-    global PN_SPK_PATH, ITN_FR_PATH, TSPK_PATH, BIN_SPK_PATH
+    global PN_SPK_PATH, ITN_FR_PATH, TSPK_PATH, BIN_SPK_PATH, XCORR_PATH
     PN_SPK_PATH = os.path.join(OUTPUT_PATH, 'PN_spikes')
     ITN_FR_PATH = os.path.join(OUTPUT_PATH, 'ITN_fr')
     TSPK_PATH = os.path.join(OUTPUT_PATH, 'spike_times')
     BIN_SPK_PATH = os.path.join(OUTPUT_PATH, 'binned_spikes')
+    XCORR_PATH = os.path.join(OUTPUT_PATH, 'wave_fr_xcorr')
     if not os.path.isdir(PN_SPK_PATH):
         os.mkdir(PN_SPK_PATH)
     if not os.path.isdir(ITN_FR_PATH):
@@ -41,6 +45,8 @@ def set_variables(**kwargs):
         os.mkdir(TSPK_PATH)
     if not os.path.isdir(BIN_SPK_PATH):
         os.mkdir(BIN_SPK_PATH)
+    if not os.path.isdir(XCORR_PATH):
+        os.mkdir(XCORR_PATH)
 
 set_variables()
 
@@ -663,4 +669,61 @@ def simulate_stp(stp_objs, **syn_params):
     """Run simulate for all stp objects in stp_objs with parameters in syn_params"""
     for stp_jump in stp_objs:
         stp_jump.simulate(**syn_params)
+
+
+def get_wave_fr_xcorr(trial_name, wave_kwargs, normalize_lfp=True, normalize_fr=False, max_lag=300., overwrite=False):
+    xcorr_file = os.path.join(XCORR_PATH, trial_name + '.nc')
+    if overwrite or not os.path.isfile(xcorr_file):
+        # Load ITN firing rate data
+        _, ITN_fr_file = get_file(trial_name)
+        ITN_fr = xr.open_dataset(ITN_fr_file)
+        fs, time, i_start = ITN_fr.fs, ITN_fr.time, ITN_fr.i_start
+        dt = 1000 / fs
+        if normalize_lfp or normalize_fr:
+            filt_sigma = ITN_fr.gauss_filt_sigma / dt
+        # Get population firing rate
+        pop_ids, spikes_df, t_start, t_stop = load_trial(trial_name, sum(pop_groups.values(), []))
+        pop_ids = {grp: sum([pop_ids[p] for p in pop], []) for grp, pop in pop_groups.items()}
+        time_edge = time - dt / 2
+        pop_rspk = process.group_spike_rate_to_xarray(spikes_df, time_edge, pop_ids, group_dims='population')
+        pop_waves = process.get_waves(pop_rspk.spike_rate, fs=fs, **wave_kwargs)
+        if normalize_fr:
+            # Gaussian smoothing
+            axis = pop_rspk.spike_rate.dims.index('time')
+            sigma = np.zeros(pop_rspk.spike_rate.ndim)
+            sigma[axis] = filt_sigma
+            pop_rspk.update(dict(smoothed_spike_rate=xr.zeros_like(pop_rspk.spike_rate)))
+            pop_rspk.smoothed_spike_rate[:] = gaussian_filter(pop_rspk.spike_rate, sigma)
+            pop_waves /= pop_rspk.smoothed_spike_rate
+        # Concatenate with waves in LFP
+        lfp_file = os.path.join(RESULT_PATH, trial_name, 'ecp.h5')
+        lfp = utils.load_ecp_to_xarray(lfp_file).sel(channel_id=elec_id)
+        lfp = interp1d(lfp.time, lfp, assume_sorted=True)(time)
+        if normalize_lfp:
+            lfp /= gaussian_filter(lfp * lfp, filt_sigma) ** 0.5  # normalize by total power
+        lfp_waves = process.get_waves(xr.DataArray(lfp, coords={'time': time}), fs=fs, **wave_kwargs)
+        pop_waves = xr.concat([pop_waves, lfp_waves.expand_dims(dim={'population': ['LFP']})], dim='population')
+
+        # collect cross correlations into xarray dataset
+        wave_pop, waves = pop_waves.population, pop_waves.wave
+        t_slice = slice(i_start, None)
+        wave_fr_xcorr = []
+        for wp in wave_pop:
+            for w in waves:
+                w_da = pop_waves.sel(population=wp, wave=w)
+                for p in ITN_pop_names:
+                    xcorr, xcorr_lags = plot.xcorr_coeff(w_da.isel(time=t_slice),
+                        ITN_fr.spike_rate.sel(population=p).isel(time=t_slice),
+                        max_lag=max_lag, dt=dt, plot=False)
+                    wave_fr_xcorr.append(xcorr)
+
+        coords = {'wave_pop': wave_pop.values, 'wave': waves.values, 'FR_population': ITN_pop_names, 'lags': xcorr_lags}
+        wave_fr_xcorr = np.array(wave_fr_xcorr).reshape(wave_pop.size, waves.size, len(ITN_pop_names), -1)
+        wave_fr_xcorr = xr.Dataset(dict(xcorr=(coords, wave_fr_xcorr)), coords=coords,
+            attrs=dict(max_lag=max_lag, n_lags=xcorr_lags.size // 2, fs=fs, duration=t_stop - t_start))
+        # Save dataset to file
+        wave_fr_xcorr.to_netcdf(xcorr_file)
+    else:
+        wave_fr_xcorr = xr.open_dataset(xcorr_file)
+    return wave_fr_xcorr
 

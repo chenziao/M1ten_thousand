@@ -155,9 +155,12 @@ def group_spike_rate_to_xarray(spikes_df, time, group_ids,
     """
     time = np.asarray(time)
     fs = 1000 * (time.size - 1) / (time[-1] - time[0])
-    if not isinstance(group_dims, list):
+    if isinstance(group_dims, str):
+        reidx = {group_dims: list(group_ids)}
         group_dims = [group_dims]
         group_ids = {(k, ): v for k, v in group_ids.items()}
+    else:
+        reidx = {}
     group_index = pd.MultiIndex.from_tuples(group_ids, names=group_dims)
     grp_rspk = xr.Dataset(
         dict(
@@ -172,7 +175,7 @@ def group_spike_rate_to_xarray(spikes_df, time, group_ids,
         ),
         coords = {'group': group_index, 'time': time + 1000 / fs / 2},
         attrs = {'fs': fs}
-    ).unstack('group').transpose(*group_dims, 'time')
+    ).unstack('group', fill_value=0).reindex(**reidx).transpose(*group_dims, 'time')
     return grp_rspk
 
 
