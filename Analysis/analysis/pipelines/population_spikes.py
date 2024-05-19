@@ -225,6 +225,8 @@ def get_stp_data(trial_name, tau, lag_range, data='fr'):
     return w_stp, fr_tot, lag_fr
 
 
+nid_tspk_to_lil = process.nid_tspk_to_lil
+
 class STP_Jump(object):
     """Class for simulating STP dynamic as jump process"""
     def __init__(self, **params):
@@ -307,15 +309,7 @@ class STP_Jump(object):
             self.N = max(nid) + 1 if N is None else N
             if not assume_sorted:
                 nid, tspk = zip(*sorted(zip(nid, tspk)))
-            n = 0
-            idx = [0]
-            for i, j in enumerate(list(nid) + [len(nid)]):
-                while j > n:
-                    n += 1
-                    idx.append(i)
-                if n >= self.N:
-                    break
-            tspk = [tspk[i:j] for i, j in zip(idx[:-1], idx[1:])]
+            tspk = nid_tspk_to_lil(nid, tspk, self.N)
         if self.states is None:
             # initialize state variables
             if u0 is None:
@@ -430,15 +424,7 @@ class Simple_Jump(object):
             self.N = max(nid) + 1 if N is None else N
             if not assume_sorted:
                 nid, tspk = zip(*sorted(zip(nid, tspk)))
-            n = 0
-            idx = [0]
-            for i, j in enumerate(list(nid) + [len(nid)]):
-                while j > n:
-                    n += 1
-                    idx.append(i)
-                if n >= self.N:
-                    break
-            tspk = [tspk[i:j] for i, j in zip(idx[:-1], idx[1:])]
+            tspk = nid_tspk_to_lil(nid, tspk, self.N)
         if self.states is None:
             # initialize state variables
             assert(s0 >= 1 and t0 <= 0)

@@ -4,6 +4,7 @@ import xarray as xr
 import scipy.signal as ss
 import pywt
 from scipy.ndimage import gaussian_filter
+from scipy.interpolate import interp1d
 
 from build_input import get_stim_cycle, T_STOP
 
@@ -219,7 +220,7 @@ def combine_spike_rate(grp_rspk, dim, variables=None, index=slice(None)):
         If not specified, apply to all variables except `population_number`
     index: slice or indices of selected groups to combine. Defaults to all
     """
-    if not isinstance(dim, list):
+    if isinstance(dim, str):
         dim = [dim]
         index = [index]
     elif isinstance(index, slice):
@@ -333,7 +334,7 @@ def get_waves(da, fs, waves, transform, dim='time', component='amp', **kwargs):
     for i, freq in enumerate(waves.values()):
         x_a = transform(da.values, freq, fs, axis=axis, **kwargs)
         x[i][:] = comp_func(x_a)
-    x = xr.concat(x, dim=pd.Index(waves.keys(), name='wave'))
+    x = xr.concat(x, dim=pd.Index(waves.keys(), name='wave')).rename('wave_' + component)
     return x
 
 
@@ -389,3 +390,47 @@ def exponential_spike_filter(spikes, tau, cut_val=1e-3, min_rate=None,
         jump = jump.reshape(shape)
         filtered = (filtered, jump)
     return filtered
+
+
+def nid_tspk_to_lil(nid, tspk, N):
+    """Convert node id and spike times into list of lists of spike times
+    nid: sorted node ids of each spike range from 0 to N - 1
+    tspk: sorted spike times with the same size as nid
+    N: number of nodes
+    """
+    n = 0
+    idx = [0]
+    for i, j in enumerate(list(nid) + [N]):
+        while j > n:
+            n += 1
+            idx.append(i)
+        if n >= N:
+            break
+    return [tspk[i:j] for i, j in zip(idx[:-1], idx[1:])]
+
+
+def get_windowed_spikes(spikes_df, windows, node_ids):
+    """Get list of spike times of each unit in node_ids that fall in time windows"""
+    spk_df = spikes_df.loc[spikes_df['node_ids'].isin(node_ids)]
+    bin_idx = np.digitize(spk_df['timestamps'], windows.ravel())
+    spk_df = spk_df.loc[bin_idx % 2 > 0]
+    N = len(node_ids)
+    node_nid = pd.Series(range(N), index=node_ids)
+    spk_df['node_ids'] = node_nid.loc[spk_df['node_ids']].values
+    spk_df = spk_df.sort_values(['node_ids', 'timestamps'])
+    tspk = nid_tspk_to_lil(spk_df['node_ids'], spk_df['timestamps'].tolist(), N)
+    return tspk
+
+
+def get_spike_phase(phase, time, tspk):
+    """Get phase at spike times"""
+    single = len(tspk) and isinstance(tspk[0], float)
+    if single:
+        tspk = [tspk]
+    phase_interp = interp1d(time, np.unwrap(phase), assume_sorted=True)
+    pi2 = 2 * np.pi
+    spk_pha = [phase_interp(t) % pi2 for t in tspk]
+    if single:
+        spk_pha = spk_pha[0]
+    return spk_pha
+
