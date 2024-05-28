@@ -5,7 +5,8 @@
     "stimulus": [
       "baseline",
       "short",
-      "long"
+      "long",
+      "thalamus_ramp_a0_t1.0_LONG"
     ]
   }
 ]

@@ -341,7 +341,7 @@ def get_waves(da, fs, waves, transform, dim='time', component='amp', **kwargs):
 def exponential_spike_filter(spikes, tau, cut_val=1e-3, min_rate=None,
                              normalize=False, last_jump=True, only_jump=False):
     """Filter spike train (boolean/int array) with exponential response
-    spikes: spike count array (units, time bins)
+    spikes: spike count array (time bins along the last axis)
     tau: time constant of the exponential decay (normalized by time step)
     cut_val: value at which to cutoff the tail of the exponential response
     min_rate: minimum rate of spike (normalized by sampling rate). Default: 1/(9*tau)
@@ -362,8 +362,7 @@ def exponential_spike_filter(spikes, tau, cut_val=1e-3, min_rate=None,
         elif last_jump:
             jump = np.ones(shape)
     else:
-        if spikes.ndim == 1:
-            spikes = spikes[None, :]
+        spikes = spikes.reshape(-1, shape[-1])
         min_val = np.exp(-9) if min_rate is None else \
             (0 if min_rate <= 0 else np.exp(-1 / min_rate / tau))
         t_cut = int(np.ceil(-np.log(cut_val) * tau))

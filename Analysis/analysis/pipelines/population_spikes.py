@@ -93,16 +93,19 @@ def get_file(trial_name):
     return PN_spk_file, ITN_fr_file
 
 
-def load_trial(trial_name, pop_names):
+def load_trial(trial_name, pop_names, only_id=False):
     # Load trial information
     trial_path = os.path.join(RESULT_PATH, trial_name)
-    _, paths, stim_info, _ = utils.get_trial_info(trial_path)
+    trial_info = utils.get_trial_info(trial_path)
+    _, paths, stim_info, _ = trial_info
     _, NODE_FILES, SPIKE_FILE = paths
-    t_stop, _, stim_params = stim_info
-    t_start = stim_params.get('t_start', T_START)
-    # Load trial data
     node_df = load_nodes_from_paths(NODE_FILES)[network_name]
     pop_ids = get_populations(node_df, pop_names, only_id=True)
+    if only_id:
+        return pop_ids, trial_info
+    t_stop, _, stim_params = stim_info
+    t_start = stim_params.get('t_start', T_START)
+    # Load trial spike data
     spikes_df = utils.load_spikes_to_df(SPIKE_FILE, network_name)
     return pop_ids, spikes_df, t_start, t_stop
 
@@ -168,7 +171,7 @@ def PN_stp_weights(PN_spk_file, tau, data='fr'):
     """
     tau = np.asarray(tau)
     with np.load(PN_spk_file) as f:
-        unit_fr = f['unit_fr']
+        unit_fr = f['unit_fr']  # (units, times)
         i_start = f['i_start_fr']
         if data == 'ct':
             time_fr, time_ct = f['time_fr'], f['time_ct']
@@ -182,7 +185,7 @@ def PN_stp_weights(PN_spk_file, tau, data='fr'):
     unit_fr = unit_fr[:, i_start:]
     fr_exp_filt = np.array(fr_exp_filt)[:, :, i_start:].reshape(tau.shape + unit_fr.shape)
     w_stp = np.mean(unit_fr * fr_exp_filt, axis=-2)
-    fr_tot = np.mean(unit_fr, axis=0)
+    fr_tot = np.mean(unit_fr, axis=-2)
     return w_stp, fr_tot
 
 
@@ -686,7 +689,7 @@ def get_wave_fr_xcorr(trial_name, wave_kwargs, normalize_lfp=True, normalize_fr=
         lfp = utils.load_ecp_to_xarray(lfp_file).sel(channel_id=elec_id)
         lfp = interp1d(lfp.time, lfp, assume_sorted=True)(time)
         if normalize_lfp:
-            lfp /= gaussian_filter(lfp * lfp, filt_sigma) ** 0.5  # normalize by total power
+            lfp /= gaussian_filter(lfp * lfp, filt_sigma) ** 0.5  # normalize by sqrt of power
         lfp_waves = process.get_waves(xr.DataArray(lfp, coords={'time': time}), fs=fs, **wave_kwargs)
         pop_waves = xr.concat([pop_waves, lfp_waves.expand_dims(dim={'population': ['LFP']})], dim='population')
 

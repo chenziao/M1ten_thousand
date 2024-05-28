@@ -497,12 +497,11 @@ def get_std_param(stim_setting={}, stimulus='baseline'):
     stimulus: stimulus type name
     Return: firing rate traces
     """
-    p = stim_setting.get(stimulus)
+    p = stim_setting.get(stimulus).copy()
     n_assemblies = stim_setting.get('n_assemblies', N_ASSEMBLIES)
     if 'baseline' in stimulus:
-        times = (0, p.get('t_stop', T_STOP))
-        fr_params = [{'firing_rate': p['PN_firing_rate'], 'times': times},
-                     {'firing_rate': p['ITN_firing_rate'], 'times': times}]
+        times = (0, p.pop('t_stop', T_STOP))
+        fr_params = [{'firing_rate': fr, 'times': times} for fr in p.values()]
     elif 'const' in stimulus:
         t_stop = p.get('t_stop', T_STOP)
         fr_params = get_fr_long(n_assemblies, [p['firing_rate']] * 2,
@@ -752,6 +751,8 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
     # Poisson input mean firing rates
     PN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to PNs
     ITN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to ITNs
+    FSI_baseline_fr = 200.0  # 200 Hz. If not None, use modified fr for FSI
+    LTS_baseline_fr = None  # 200 Hz. If not None, use modified fr for LTS
     Thal_burst_fr = 50.0 if burst_fr is None else burst_fr  # Hz. for thalamus burst input
     Thal_const_fr = 10.0 if burst_fr is None else burst_fr  # Hz. for thalamus constant input
 
@@ -764,12 +765,21 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
     for stim in stimulus:
         # Baseline input
         if stim == 'baseline':
-            std_stim_params['baseline'] = dict(t_stop=t_stop,
-                PN_firing_rate=PN_baseline_fr, ITN_firing_rate=ITN_baseline_fr)
+            stim_setting = dict(t_stop=t_stop, PN_firing_rate=PN_baseline_fr)
+            if FSI_baseline_fr is None and LTS_baseline_fr is None:
+                stim_setting['ITN_firing_rate'] = ITN_baseline_fr
+                ITN_nodes = [Base_nodes['FSI'] + Base_nodes['LTS']]
+            else:
+                stim_setting['FSI_firing_rate'] = ITN_baseline_fr \
+                    if FSI_baseline_fr is None else FSI_baseline_fr
+                stim_setting['LTS_firing_rate'] = ITN_baseline_fr \
+                    if LTS_baseline_fr is None else LTS_baseline_fr
+                ITN_nodes = [Base_nodes['FSI'], Base_nodes['LTS']]
+            std_stim_params['baseline'] = stim_setting
             fr_params = get_std_param(std_stim_params, 'baseline')
             psg = PSG(population='baseline', seed_offset=0)
-            psg = get_psg_from_fr(psg, [Base_nodes['CP'] + Base_nodes['CS'],
-                Base_nodes['FSI'] + Base_nodes['LTS']], fr_params)
+            psg = get_psg_from_fr(psg, [Base_nodes['CP'] + Base_nodes['CS']] \
+                + ITN_nodes, fr_params)
             psg.to_sonata(os.path.join(input_path, "baseline.h5"))
             continue
 
@@ -883,7 +893,8 @@ if __name__ == '__main__':
                         help="Simulation start period")
     parser.add_argument('-n', '--n_assemblies', type=int,
                         nargs='?', default=N_ASSEMBLIES, metavar='# Assemblies',
-                        help="Number of assemblies to randomly assign.")
+                        help="Number of assemblies to randomly assign. "
+                        "Set to 0 to load assemblies that have already been assigned.")
     parser.add_argument('-div', '--div_assembly', type=int,
                         nargs="*", default=None, metavar='Divide assemblies',
                         help="Number of smaller assemblies that each of the "
