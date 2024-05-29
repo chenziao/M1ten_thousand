@@ -13,7 +13,7 @@ from connectors import num_prop
 
 
 INPUT_PATH = "./input"
-STIMULUS = ['baseline', 'short', 'long']
+STIMULUS = ['baseline', 'short', 'long', 'shell']
 
 N_ASSEMBLIES = 9  # number of assemblies
 NET_SEED = 123  # random seed for network r.v.'s (e.g. assemblies, firing rate)
@@ -751,8 +751,9 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
     # Poisson input mean firing rates
     PN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to PNs
     ITN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to ITNs
-    FSI_baseline_fr = 200.0  # 200 Hz. If not None, use modified fr for FSI
-    LTS_baseline_fr = None  # 200 Hz. If not None, use modified fr for LTS
+    FSI_baseline_fr = None  # 200 Hz. If not None, use modified fr for FSI
+    LTS_baseline_fr = 60.0  # 60 Hz. If not None, use modified fr for LTS
+    ITN_baseline_burst = True  # whether use burst input like short/long or constant
     Thal_burst_fr = 50.0 if burst_fr is None else burst_fr  # Hz. for thalamus burst input
     Thal_const_fr = 10.0 if burst_fr is None else burst_fr  # Hz. for thalamus constant input
 
@@ -767,9 +768,12 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
         if stim == 'baseline':
             stim_setting = dict(t_stop=t_stop, PN_firing_rate=PN_baseline_fr)
             if FSI_baseline_fr is None and LTS_baseline_fr is None:
+                # normal baseline input
                 stim_setting['ITN_firing_rate'] = ITN_baseline_fr
                 ITN_nodes = [Base_nodes['FSI'] + Base_nodes['LTS']]
+                ITN_baseline_burst = False
             else:
+                # supply pseudo stimulus input to ITNs as baseline (for PING validation)
                 stim_setting['FSI_firing_rate'] = ITN_baseline_fr \
                     if FSI_baseline_fr is None else FSI_baseline_fr
                 stim_setting['LTS_firing_rate'] = ITN_baseline_fr \
@@ -777,10 +781,21 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
                 ITN_nodes = [Base_nodes['FSI'], Base_nodes['LTS']]
             std_stim_params['baseline'] = stim_setting
             fr_params = get_std_param(std_stim_params, 'baseline')
+            if ITN_baseline_burst:
+                stim_setting = dict(on_time=on_time, off_time=off_time,
+                                   t_start=t_start, t_stop=t_stop)
+                for i, fr in enumerate([FSI_baseline_fr, LTS_baseline_fr]):
+                    if fr is not None:
+                        fr = [ITN_baseline_fr, fr]
+                        fr_params[i + 1] = get_fr_long(1, fr, **stim_setting)[0]
+                std_stim_params['baseline'].update(stim_setting)
             psg = PSG(population='baseline', seed_offset=0)
             psg = get_psg_from_fr(psg, [Base_nodes['CP'] + Base_nodes['CS']] \
                 + ITN_nodes, fr_params)
             psg.to_sonata(os.path.join(input_path, "baseline.h5"))
+            continue
+
+        if stim == 'shell':
             continue
 
         if any(s in stim for s in ('short', 'long', 'const')):
@@ -836,7 +851,8 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
     print("Core cells: %.3f sec" % (time.perf_counter() - start_timer))
 
     # These inputs are for the baseline firing rates of the cells in the shell.
-    if 'shell' in nodes and 'baseline' in stimulus:
+    shell = 'shell' in stimulus and 'shell' in nodes
+    if shell:
         start_timer = time.perf_counter()
 
         # Generate Poisson spike trains for shell cells
@@ -877,6 +893,9 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
 
         psg.to_sonata(os.path.join(input_path, "shell.h5"))
         print("Shell cells: %.3f sec" % (time.perf_counter() - start_timer))
+    else:
+        if 'shell' in stimulus:
+            stimulus.remove('shell')
 
     write_seeds_file(psg_seed=psg_seed, net_seed=net_seed, stimulus=stimulus,
                      input_path=input_path, seeds_file_name='random_seeds')
@@ -926,8 +945,15 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     NET_SEED = args.net_seed
-    stimulus = args.stimulus
-    stim_files = {os.path.split(s)[1].removesuffix('.json'): s for s in args.stim_files}
+    stimulus = []
+    for s in args.stimulus:
+        if s not in stimulus:  # no duplicates
+            stimulus.append(s)
+    stim_files = {}
+    for s_ in args.stim_files:
+        s = os.path.split(s_)[1].removesuffix('.json')
+        if s not in stim_files:  # no duplicates
+            stim_files[s] = s_
     stimulus.extend(s for s in stim_files if s not in stimulus)
 
     build_input(t_stop=args.t_stop, t_start=args.t_start, n_assemblies=args.n_assemblies,
