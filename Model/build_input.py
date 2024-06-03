@@ -1,3 +1,5 @@
+#!/usr/bin/env
+
 import os
 import csv
 import json

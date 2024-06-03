@@ -1,7 +1,7 @@
 {
   "manifest": {
     "$BASE_DIR": "${configdir}",
-    "$INPUT_DIR": "$BASE_DIR/input/random_noPN2LTS",
+    "$INPUT_DIR": "$BASE_DIR/input/random",
     "$OUTPUT_DIR": "$BASE_DIR/output"
   },
   "target_simulator": "NEURON",
