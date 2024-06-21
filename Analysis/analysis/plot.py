@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import sys
 import os
 
-import pywt
 from fooof import FOOOF
 from fooof.sim.gen import gen_aperiodic, gen_model
 from matplotlib.patches import FancyArrowPatch, ArrowStyle
@@ -221,44 +220,6 @@ def psd_residual(f, pxx, fooof_result, plot=False, plt_log=False, plt_range=None
     return res_psd, res_fit
 
 
-# cone of influence in frequency for cmorxx-1.0 wavelet
-f0 = 2 * np.pi
-CMOR_COI = 2 ** -0.5
-CMOR_FLAMBDA = 4 * np.pi / (f0 + (2 + f0 ** 2) ** 0.5)
-COI_FREQ = 1 / (CMOR_COI * CMOR_FLAMBDA)
-
-def cwt_spectrogram(x, fs, nNotes=6, nOctaves=np.inf, freq_range=(0, np.inf),
-                    bandwidth=1.0, axis=-1, detrend=False, normalize=False):
-    """Calculate spectrogram using continuous wavelet transform"""
-    x = np.asarray(x)
-    N = x.shape[axis]
-    times = np.arange(N) / fs
-    # detrend and normalize
-    if detrend:
-        x = ss.detrend(x, axis=axis, type='linear')
-    if normalize:
-        x = x / x.std()
-    # Define some parameters of our wavelet analysis. 
-    # range of scales (in time) that makes sense
-    # min = 2 (Nyquist frequency)
-    # max = np.floor(N/2)
-    nOctaves = min(nOctaves, np.log2(2 * np.floor(N / 2)))
-    scales = 2 ** np.arange(1, nOctaves, 1 / nNotes)
-    # cwt and the frequencies used. 
-    # Use the complex morelet with bw=2*bandwidth^2 and center frequency of 1.0
-    # bandwidth is sigma of the gaussian envelope
-    wavelet = 'cmor' + str(2 * bandwidth ** 2) + '-1.0'
-    frequencies = pywt.scale2frequency(wavelet, scales) * fs
-    scales = scales[(frequencies >= freq_range[0]) & (frequencies <= freq_range[1])]
-    coef, frequencies = pywt.cwt(x, scales[::-1], wavelet=wavelet, sampling_period=1 / fs, axis=axis)
-    power = np.real(coef * np.conj(coef)) # equivalent to power = np.abs(coef)**2
-    # cone of influence in terms of wavelength
-    coi = N / 2 - np.abs(np.arange(N) - (N - 1) / 2)
-    # cone of influence in terms of frequency
-    coif = COI_FREQ * fs / coi
-    return power, times, frequencies, coif
-
-
 def cwt_spectrogram_xarray(x, fs, time=None, axis=-1, downsample_fs=None,
                            channel_coords=None, **cwt_kwargs):
     """Calculate spectrogram using continuous wavelet transform and return an xarray.Dataset
@@ -281,7 +242,7 @@ def cwt_spectrogram_xarray(x, fs, time=None, axis=-1, downsample_fs=None,
         downsample_fs = num / T * fs
         downsampled, t = ss.resample(x, num=num, t=t, axis=axis)
     downsampled = np.moveaxis(downsampled, axis, -1)
-    sxx, _, f, coif = cwt_spectrogram(downsampled, downsample_fs, **cwt_kwargs)
+    sxx, _, f, coif = process.cwt_spectrogram(downsampled, downsample_fs, **cwt_kwargs)
     sxx = np.moveaxis(sxx, 0, -2) # shape (... , freq, time)
     if channel_coords is None:
         channel_coords = {f'dim_{i:d}': range(d) for i, d in enumerate(sxx.shape[:-2])}

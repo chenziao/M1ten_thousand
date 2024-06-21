@@ -3,7 +3,6 @@ import pandas as pd
 import xarray as xr
 import os
 import json
-import warnings
 
 from bmtool.util.util import load_nodes_from_paths
 from scipy.ndimage import gaussian_filter
@@ -640,6 +639,7 @@ def save_lil(file, lil={}, add_vars={}):
 
 
 def load_lil(file):
+    """Load row-based List of Lists array"""
     lil, add_vars = {}, {}
     with np.load(file) as f:
         for key, val in f.items():
@@ -661,6 +661,15 @@ def simulate_stp(stp_objs, **syn_params):
 
 
 def get_wave_fr_xcorr(trial_name, wave_kwargs, normalize_lfp=True, normalize_fr=False, max_lag=300., overwrite=False):
+    """Get cross-correlation between firing rate and wave amplitude
+    trial_name: name of simulation trial
+    wave_kwargs: keyword arguments for calculating wave amplitude
+    normalize_lfp, normalize_fr: whether normalize wave ampliutde by instantaneous
+        amplitude of lfp/firing rate (sqrt of power of all frequencies).
+        Use 'wavelet' to estimate amplitude by integrating wavelet transform over frequencies.
+    max_lag: maximum time lag for cross-correlation
+    overwrite: whether process and overwrite result data file
+    """
     xcorr_file = os.path.join(XCORR_PATH, trial_name + '.nc')
     if overwrite or not os.path.isfile(xcorr_file):
         # Load ITN firing rate data
@@ -677,19 +686,25 @@ def get_wave_fr_xcorr(trial_name, wave_kwargs, normalize_lfp=True, normalize_fr=
         pop_rspk = process.group_spike_rate_to_xarray(spikes_df, time_edge, pop_ids, group_dims='population')
         pop_waves = process.get_waves(pop_rspk.spike_rate, fs=fs, **wave_kwargs)
         if normalize_fr:
-            # Gaussian smoothing
-            axis = pop_rspk.spike_rate.dims.index('time')
-            sigma = np.zeros(pop_rspk.spike_rate.ndim)
-            sigma[axis] = filt_sigma
-            pop_rspk.update(dict(smoothed_spike_rate=xr.zeros_like(pop_rspk.spike_rate)))
-            pop_rspk.smoothed_spike_rate[:] = gaussian_filter(pop_rspk.spike_rate, sigma)
-            pop_waves /= pop_rspk.smoothed_spike_rate
+            if normalize_fr == 'wavelet':
+                pop_waves /= process.instant_amp_by_cwt(pop_rspk.spike_rate, fs)
+            else:
+                # Gaussian smoothing
+                axis = pop_rspk.spike_rate.dims.index('time')
+                sigma = np.zeros(pop_rspk.spike_rate.ndim)
+                sigma[axis] = filt_sigma
+                pop_rspk.update(dict(smoothed_spike_rate=xr.zeros_like(pop_rspk.spike_rate)))
+                pop_rspk.smoothed_spike_rate[:] = gaussian_filter(pop_rspk.spike_rate, sigma)
+                pop_waves /= pop_rspk.smoothed_spike_rate
         # Concatenate with waves in LFP
         lfp_file = os.path.join(RESULT_PATH, trial_name, 'ecp.h5')
         lfp = utils.load_ecp_to_xarray(lfp_file).sel(channel_id=elec_id)
         lfp = interp1d(lfp.time, lfp, assume_sorted=True)(time)
         if normalize_lfp:
-            lfp /= gaussian_filter(lfp * lfp, filt_sigma) ** 0.5  # normalize by sqrt of power
+            if normalize_lfp == 'wavelet':
+                lfp /= process.instant_amp_by_cwt(lfp, fs)
+            else:
+                lfp /= gaussian_filter(lfp * lfp, filt_sigma) ** 0.5  # normalize by sqrt of power
         lfp_waves = process.get_waves(xr.DataArray(lfp, coords={'time': time}), fs=fs, **wave_kwargs)
         pop_waves = xr.concat([pop_waves, lfp_waves.expand_dims(dim={'population': ['LFP']})], dim='population')
 
