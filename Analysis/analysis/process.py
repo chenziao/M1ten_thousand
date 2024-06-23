@@ -372,14 +372,21 @@ def wave_cwt(x, freq, fs, bandwidth=1.0, axis=-1):
 
 
 def get_waves(da, fs, waves, transform, dim='time', component='amp', **kwargs):
-    x = [xr.zeros_like(da) for _ in range(len(waves))]
     axis = da.dims.index(dim)
-    comp_funcs = {'amp': np.abs, 'pha': np.angle}
-    comp_func = comp_funcs.get(component, comp_funcs['amp'])
+    comp_funcs = {'amp': np.abs, 'pha': np.angle, 'none': None}
+    comp_func = comp_funcs.get(component, comp_funcs['none'])
+    dtype = complex if comp_func is None else None
+    x = [xr.zeros_like(da, dtype=dtype) for _ in range(len(waves))]
     for i, freq in enumerate(waves.values()):
         x_a = transform(da.values, freq, fs, axis=axis, **kwargs)
-        x[i][:] = comp_func(x_a)
-    x = xr.concat(x, dim=pd.Index(waves.keys(), name='wave')).rename('wave_' + component)
+        x[i][:] = x_a if comp_func is None else comp_func(x_a)
+        x = xr.concat(x, dim=pd.Index(waves.keys(), name='wave')).rename('wave_' + component)
+    if component == 'both':
+        funcs = ['amp', 'pha']
+        xs = [xr.zeros_like(x, dtype=float) for _ in range(len(funcs))]
+        for i, f in enumerate(funcs):
+            xs[i][:] = comp_funcs[f](x)
+        x = xr.concat(xs, dim=pd.Index(funcs, name='component'))
     return x
 
 
@@ -466,14 +473,29 @@ def get_windowed_spikes(spikes_df, windows, node_ids):
     return tspk
 
 
-def get_spike_phase(phase, time, tspk):
+def get_spike_amplitude(amp, time, tspk, axis=-1):
+    """Get amplitude at spike times"""
+    single = len(tspk) and isinstance(tspk[0], float)
+    if single:
+        tspk = [tspk]
+    amp_interp = interp1d(time, amp, axis=axis, assume_sorted=True)
+    spk_amp = [amp_interp(t) for t in tspk]
+    if single:
+        spk_amp = spk_amp[0]
+    return spk_amp
+
+
+def get_spike_phase(phase, time, tspk, axis=-1, min_pha=0.):
     """Get phase at spike times"""
     single = len(tspk) and isinstance(tspk[0], float)
     if single:
         tspk = [tspk]
-    phase_interp = interp1d(time, np.unwrap(phase), assume_sorted=True)
+    phase_interp = interp1d(time, np.unwrap(phase, axis=axis), axis=axis, assume_sorted=True)
     pi2 = 2 * np.pi
-    spk_pha = [phase_interp(t) % pi2 for t in tspk]
+    if min_pha:
+        spk_pha = [(phase_interp(t) - min_pha) % pi2 + min_pha for t in tspk]
+    else:
+        spk_pha = [phase_interp(t) % pi2 for t in tspk]
     if single:
         spk_pha = spk_pha[0]
     return spk_pha

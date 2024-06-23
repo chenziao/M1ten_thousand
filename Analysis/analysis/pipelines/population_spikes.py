@@ -30,12 +30,13 @@ def set_variables(**kwargs):
     for key, value in kwargs.items():
         global_vars[key] = value
     # set up data path
-    global PN_SPK_PATH, ITN_FR_PATH, TSPK_PATH, BIN_SPK_PATH, XCORR_PATH
+    global PN_SPK_PATH, ITN_FR_PATH, TSPK_PATH, BIN_SPK_PATH, XCORR_PATH, ENTR_PATH
     PN_SPK_PATH = os.path.join(OUTPUT_PATH, 'PN_spikes')
     ITN_FR_PATH = os.path.join(OUTPUT_PATH, 'ITN_fr')
     TSPK_PATH = os.path.join(OUTPUT_PATH, 'spike_times')
     BIN_SPK_PATH = os.path.join(OUTPUT_PATH, 'binned_spikes')
     XCORR_PATH = os.path.join(OUTPUT_PATH, 'wave_fr_xcorr')
+    ENTR_PATH = os.path.join(OUTPUT_PATH, 'lfp_entrainment')
     if not os.path.isdir(PN_SPK_PATH):
         os.mkdir(PN_SPK_PATH)
     if not os.path.isdir(ITN_FR_PATH):
@@ -46,6 +47,8 @@ def set_variables(**kwargs):
         os.mkdir(BIN_SPK_PATH)
     if not os.path.isdir(XCORR_PATH):
         os.mkdir(XCORR_PATH)
+    if not os.path.isdir(ENTR_PATH):
+        os.mkdir(ENTR_PATH)
 
 set_variables()
 
@@ -565,7 +568,7 @@ def setup_pop_stp(trial_name, pop_stp_info, attrs, overwrite=False):
 
     # load spike data
     if process_tspk or process_bin_spk:
-        _, spk_df, t_start, t_stop = load_trial(trial_name, pre_ids_idx)
+        _, spk_df, _, t_stop = load_trial(trial_name, pre_ids_idx)
         spk_df = spk_df.set_index('node_ids').rename(columns={'timestamps': 'tspk'})
 
     # get spike times for each cell type
@@ -679,7 +682,7 @@ def get_wave_fr_xcorr(trial_name, wave_kwargs, normalize_lfp=True, normalize_fr=
         dt = 1000 / fs
         if normalize_lfp or normalize_fr:
             filt_sigma = ITN_fr.gauss_filt_sigma / dt
-        # Get population firing rate
+        # Get waves in population firing rate
         pop_ids, spikes_df, t_start, t_stop = load_trial(trial_name, sum(pop_groups.values(), []))
         pop_ids = {grp: sum([pop_ids[p] for p in pop], []) for grp, pop in pop_groups.items()}
         time_edge = time - dt / 2
@@ -696,16 +699,17 @@ def get_wave_fr_xcorr(trial_name, wave_kwargs, normalize_lfp=True, normalize_fr=
                 pop_rspk.update(dict(smoothed_spike_rate=xr.zeros_like(pop_rspk.spike_rate)))
                 pop_rspk.smoothed_spike_rate[:] = gaussian_filter(pop_rspk.spike_rate, sigma)
                 pop_waves /= pop_rspk.smoothed_spike_rate
-        # Concatenate with waves in LFP
+        # Get waves in LFP
         lfp_file = os.path.join(RESULT_PATH, trial_name, 'ecp.h5')
         lfp = utils.load_ecp_to_xarray(lfp_file).sel(channel_id=elec_id)
         lfp = interp1d(lfp.time, lfp, assume_sorted=True)(time)
+        lfp_waves = process.get_waves(xr.DataArray(lfp, coords={'time': time}), fs=fs, **wave_kwargs)
         if normalize_lfp:
             if normalize_lfp == 'wavelet':
-                lfp /= process.instant_amp_by_cwt(lfp, fs)
+                lfp_waves /= process.instant_amp_by_cwt(lfp, fs)
             else:
-                lfp /= gaussian_filter(lfp * lfp, filt_sigma) ** 0.5  # normalize by sqrt of power
-        lfp_waves = process.get_waves(xr.DataArray(lfp, coords={'time': time}), fs=fs, **wave_kwargs)
+                lfp_waves /= gaussian_filter(lfp * lfp, filt_sigma) ** 0.5  # normalize by sqrt of power
+        # Concatenate with waves in LFP
         pop_waves = xr.concat([pop_waves, lfp_waves.expand_dims(dim={'population': ['LFP']})], dim='population')
 
         # collect cross correlations into xarray dataset
@@ -731,3 +735,35 @@ def get_wave_fr_xcorr(trial_name, wave_kwargs, normalize_lfp=True, normalize_fr=
         wave_fr_xcorr = xr.open_dataset(xcorr_file)
     return wave_fr_xcorr
 
+
+def get_lfp_entrainment(trial_name, wave_kwargs, pop_names, overwrite=False):
+    files = {p: os.path.join(ENTR_PATH, trial_name + '_' + p + '.npz') for p in pop_names}
+    writefiles = files.copy() if overwrite else {p: f for p, f in files.items() if not os.path.isfile(f)}
+    pop_names = list(writefiles)
+    # Get waves in LFP
+    if pop_names:
+        lfp_file = os.path.join(RESULT_PATH, trial_name, 'ecp.h5')
+        lfp = utils.load_ecp_to_xarray(lfp_file).sel(channel_id=elec_id)
+        lfp_waves = process.get_waves(lfp, fs=lfp.fs, component='both', **wave_kwargs)
+        time = lfp_waves.time.values
+        # Get spike times of population
+        pop_ids, spk_df, t_start, t_stop = load_trial(trial_name, pop_names)
+        pop_spike = [np.sort(spk_df.loc[spk_df['node_ids'].isin(ids), 'timestamps']) for ids in pop_ids.values()]
+        t_start = max(t_start * 1000, time[0])
+        t_stop = min(t_stop * 1000, time[-1])
+        pop_spike = [tspk[(tspk >= t_start) & (tspk <= t_stop)] for tspk in pop_spike]
+        # Get wave amplitude and phase at spike times
+        axis = lfp_waves.sel(component='pha').dims.index('time')
+        spk_amp = process.get_spike_amplitude(lfp_waves.sel(component='amp'), time, pop_spike, axis=axis)
+        spk_pha = process.get_spike_phase(lfp_waves.sel(component='pha'), time, pop_spike, axis=axis, min_pha=-np.pi)
+        # Save data to files
+        for i, p in enumerate(pop_names):
+            amp = np.moveaxis(spk_amp[i], axis, -1)
+            pha = np.moveaxis(spk_pha[i], axis, -1)
+            np.savez(writefiles[p], amp=amp, pha=pha)
+    # Read data from files
+    amp_pha = []
+    for p, file in files.items():
+        with np.load(file) as f:
+            amp_pha.append(np.array([f['amp'], f['pha']]))
+    return amp_pha
