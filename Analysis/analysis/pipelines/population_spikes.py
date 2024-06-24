@@ -740,18 +740,25 @@ def get_lfp_entrainment(trial_name, wave_kwargs, pop_names, overwrite=False):
     files = {p: os.path.join(ENTR_PATH, trial_name + '_' + p + '.npz') for p in pop_names}
     writefiles = files.copy() if overwrite else {p: f for p, f in files.items() if not os.path.isfile(f)}
     pop_names = list(writefiles)
+    wave_file = os.path.join(ENTR_PATH, trial_name + '_wave.nc')
+    # Get trial info
+    if overwrite or not os.path.isfile(wave_file) or pop_names:
+        pop_ids, spk_df, t_start, t_stop = load_trial(trial_name, pop_names)
+        t_start, t_stop = t_start * 1000, t_stop * 1000
     # Get waves in LFP
-    if pop_names:
+    if overwrite or not os.path.isfile(wave_file):
         lfp_file = os.path.join(RESULT_PATH, trial_name, 'ecp.h5')
         lfp = utils.load_ecp_to_xarray(lfp_file).sel(channel_id=elec_id)
         lfp_waves = process.get_waves(lfp, fs=lfp.fs, component='both', **wave_kwargs)
-        time = lfp_waves.time.values
+        lfp_waves.sel(time=slice(t_start, t_stop))
+        lfp_waves.to_netcdf(wave_file)
+    else:
+        lfp_waves = xr.open_dataset(wave_file).wave_both
+    if pop_names:
         # Get spike times of population
-        pop_ids, spk_df, t_start, t_stop = load_trial(trial_name, pop_names)
+        time = lfp_waves.time.values
         pop_spike = [np.sort(spk_df.loc[spk_df['node_ids'].isin(ids), 'timestamps']) for ids in pop_ids.values()]
-        t_start = max(t_start * 1000, time[0])
-        t_stop = min(t_stop * 1000, time[-1])
-        pop_spike = [tspk[(tspk >= t_start) & (tspk <= t_stop)] for tspk in pop_spike]
+        pop_spike = [tspk[(tspk >= time[0]) & (tspk <= time[-1])] for tspk in pop_spike]
         # Get wave amplitude and phase at spike times
         axis = lfp_waves.sel(component='pha').dims.index('time')
         spk_amp = process.get_spike_amplitude(lfp_waves.sel(component='amp'), time, pop_spike, axis=axis)
@@ -760,10 +767,10 @@ def get_lfp_entrainment(trial_name, wave_kwargs, pop_names, overwrite=False):
         for i, p in enumerate(pop_names):
             amp = np.moveaxis(spk_amp[i], axis, -1)
             pha = np.moveaxis(spk_pha[i], axis, -1)
-            np.savez(writefiles[p], amp=amp, pha=pha)
+            np.savez_compressed(writefiles[p], amp=amp, pha=pha)
     # Read data from files
     amp_pha = []
     for p, file in files.items():
         with np.load(file) as f:
             amp_pha.append(np.array([f['amp'], f['pha']]))
-    return amp_pha
+    return amp_pha, lfp_waves
