@@ -12,10 +12,27 @@ from build_input import get_populations
 from analysis import utils, process
 
 MODEL_PATH = os.path.join('..', 'Model')
+FIG_PATH = os.path.join('.', 'figures')
 CONFIG = 'config.json'
 pop_color_base = {'CP': 'blue', 'CS': 'green', 'FSI': 'red', 'LTS': 'purple'}
 pop_color = {p: 'tab:' + clr for p, clr in pop_color_base.items()}
 pop_names = list(pop_color.keys())
+
+
+def savefig(fig=plt, name=None, dir=FIG_PATH, dpi=300., bbox_inches='tight'):
+    if name is None:
+        flag = False
+        for i in range(10000):
+            fname = os.path.join(dir, str(i))
+            if not (os.path.isfile(fname + '.png') or os.path.isfile(fname + '.pdf')):
+                flag = True
+                break
+        if not flag:
+            raise FileExistsError()
+    else:
+        fname = os.path.join(dir, name)
+    fig.savefig(fname + '.png', transparent=True, format='png', dpi=dpi, bbox_inches=bbox_inches)
+    fig.savefig(fname + '.pdf', transparent=True, format='pdf', bbox_inches=bbox_inches)
 
 
 def raster(pop_spike, pop_color, id_column='node_ids', s=0.01, ax=None):
