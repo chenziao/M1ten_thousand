@@ -94,6 +94,21 @@ def get_file(trial_name):
     ITN_fr_file = os.path.join(ITN_FR_PATH, trial_name + '.nc')
     return PN_spk_file, ITN_fr_file
 
+def get_pop_ids(node_df, pop_names):
+    if not isinstance(pop_names, dict):
+        pop_names = dict(zip(pop_names, pop_names))
+    pops = []
+    for p in pop_names.values():
+        getattr(pops, 'append' if isinstance(p, str) else 'extend')(p)
+    pop_ids = get_populations(node_df, pops, only_id=True)
+    pop_name_ids = {}
+    for k, p in pop_names.items():
+        if isinstance(p, str):
+            pop_name_ids[k] = pop_ids[p]
+        else:
+            pop_name_ids[k] = sum([pop_ids[pp] for pp in p], [])
+    return pop_name_ids
+
 
 def load_trial(trial_name, pop_names, only_id=False):
     # Load trial information
@@ -102,7 +117,7 @@ def load_trial(trial_name, pop_names, only_id=False):
     _, paths, stim_info, _ = trial_info
     _, NODE_FILES, SPIKE_FILE = paths
     node_df = load_nodes_from_paths(NODE_FILES)[network_name]
-    pop_ids = get_populations(node_df, pop_names, only_id=True)
+    pop_ids = get_pop_ids(node_df, pop_names)
     if only_id:
         return pop_ids, trial_info
     t_stop, _, stim_params = stim_info
@@ -110,6 +125,22 @@ def load_trial(trial_name, pop_names, only_id=False):
     # Load trial spike data
     spikes_df = utils.load_spikes_to_df(SPIKE_FILE, network_name)
     return pop_ids, spikes_df, t_start, t_stop
+
+
+def get_trial_label(trial_name):
+    """Convert file name format into labels for demonstration"""
+    trial_label = {}
+    for tr in trial_name:
+        ntr = tr.replace('rand', 'random').replace('div', 'strong')
+        if '_a' in tr:
+            ntr = ntr.split('_')
+            ntr = '_'.join(ntr[:-1]).replace('_a', '_' + ntr[-1])
+        if '_down' in tr:
+            ntr = ntr.replace('_down', '').replace('ramp', 'down')
+        if '_quit' in tr:
+            ntr = ntr.replace('_quit', '').replace('join', 'quit')
+        trial_label[tr] = ntr
+    return trial_label
 
 
 def preprocess(trial_name, fs_ct=400., fs_fr=50., filt_sigma=20.0, overwrite=False):
@@ -739,10 +770,11 @@ def get_wave_fr_xcorr(trial_name, wave_kwargs, normalize_lfp=True, normalize_fr=
 def get_lfp_entrainment(trial_name, wave_kwargs, pop_names, overwrite=False):
     files = {p: os.path.join(ENTR_PATH, trial_name + '_' + p + '.npz') for p in pop_names}
     writefiles = files.copy() if overwrite else {p: f for p, f in files.items() if not os.path.isfile(f)}
-    pop_names = list(writefiles)
+    pops = list(writefiles)
     wave_file = os.path.join(ENTR_PATH, trial_name + '_wave.nc')
+    waves = list(wave_kwargs['waves'])
     # Get trial info
-    if overwrite or not os.path.isfile(wave_file) or pop_names:
+    if overwrite or not os.path.isfile(wave_file) or pops:
         pop_ids, spk_df, t_start, t_stop = load_trial(trial_name, pop_names)
         t_start, t_stop = t_start * 1000, t_stop * 1000
     # Get waves in LFP
@@ -754,7 +786,8 @@ def get_lfp_entrainment(trial_name, wave_kwargs, pop_names, overwrite=False):
         lfp_waves.to_netcdf(wave_file)
     else:
         lfp_waves = xr.open_dataset(wave_file).wave_both
-    if pop_names:
+        lfp_waves = lfp_waves.sel(wave=waves)
+    if pops:
         # Get spike times of population
         time = lfp_waves.time.values
         pop_spike = [np.sort(spk_df.loc[spk_df['node_ids'].isin(ids), 'timestamps']) for ids in pop_ids.values()]
@@ -764,13 +797,15 @@ def get_lfp_entrainment(trial_name, wave_kwargs, pop_names, overwrite=False):
         spk_amp = process.get_spike_amplitude(lfp_waves.sel(component='amp'), time, pop_spike, axis=axis)
         spk_pha = process.get_spike_phase(lfp_waves.sel(component='pha'), time, pop_spike, axis=axis, min_pha=-np.pi)
         # Save data to files
-        for i, p in enumerate(pop_names):
+        for i, p in enumerate(pops):
             amp = np.moveaxis(spk_amp[i], axis, -1)
             pha = np.moveaxis(spk_pha[i], axis, -1)
             np.savez_compressed(writefiles[p], amp=amp, pha=pha)
     # Read data from files
+    i_wave = lfp_waves.wave.to_index().get_indexer(waves)
     amp_pha = []
     for p, file in files.items():
         with np.load(file) as f:
-            amp_pha.append(np.array([f['amp'], f['pha']]))
+            ap = np.array([f['amp'][i_wave], f['pha'][i_wave]])
+            amp_pha.append(ap)
     return amp_pha, lfp_waves

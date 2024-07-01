@@ -11,6 +11,11 @@ from matplotlib.patches import FancyArrowPatch, ArrowStyle
 from build_input import get_populations
 from analysis import utils, process
 
+import matplotlib as mpl
+
+mpl.rcParams['axes.spines.right'] = False
+mpl.rcParams['axes.spines.top'] = False
+
 MODEL_PATH = os.path.join('..', 'Model')
 FIG_PATH = os.path.join('.', 'figures')
 CONFIG = 'config.json'
@@ -19,7 +24,8 @@ pop_color = {p: 'tab:' + clr for p, clr in pop_color_base.items()}
 pop_names = list(pop_color.keys())
 
 
-def savefig(fig=plt, name=None, dir=FIG_PATH, dpi=300., bbox_inches='tight'):
+def savefig(fig=plt, name=None, dir=FIG_PATH, dpi=300., bbox_inches='tight',
+            axis_off=False):
     if name is None:
         flag = False
         for i in range(10000):
@@ -31,6 +37,10 @@ def savefig(fig=plt, name=None, dir=FIG_PATH, dpi=300., bbox_inches='tight'):
             raise FileExistsError()
     else:
         fname = os.path.join(dir, name)
+    if axis_off:
+        for ax in fig.axes:
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
     fig.savefig(fname + '.png', transparent=True, format='png', dpi=dpi, bbox_inches=bbox_inches)
     fig.savefig(fname + '.pdf', transparent=True, format='pdf', bbox_inches=bbox_inches)
 
@@ -48,7 +58,7 @@ def raster(pop_spike, pop_color, id_column='node_ids', s=0.01, ax=None):
     ax.set_xlim(left=0.)
     ax.set_ylim([np.min(ymin) - 1, np.max(ymax) + 1])
     ax.set_title('Spike Raster Plot')
-    ax.legend(loc='upper right', framealpha=0.9, markerfirst=False)
+    ax.legend(loc='upper right', framealpha=0.2, markerfirst=False)
     ax.set_xlabel('Time (ms)')
     ax.set_ylabel('Cell ID')
     return ax
@@ -77,7 +87,7 @@ def firing_rate_histogram(pop_fr, pop_color, bins=30, min_fr=None,
         ax.set_xscale('log')
         plt.draw()
         xt = ax.get_xticks()
-        xtl = [x.get_text() for x in ax.get_xticklabels()]
+        xtl = [f'{x:g}' for x in xt]
         xt = np.append(xt, min_fr)
         xtl.append('0')
         ax.set_xticks(xt)
@@ -113,29 +123,33 @@ def xcorr_coeff(x, y, max_lag=None, dt=1., plot=True, ax=None):
     return xcorr, xcorr_lags
 
 
-def plot_stimulus_cycles(t, x, stim_cycle, dv_n_sigma=5., var_label='LFP (mV)',
-                         fontsize=10, xytext=(.3, 0), ax=None):
+def plot_stimulus_cycles(t, x, stim_cycle, dv_n_sigma=5., pad=1.5, var_label='LFP (mV)',
+                         color=None, demean=False, fontsize=10, xytext=(.3, 0), ax=None):
     t_cycle, n_cycle = stim_cycle['t_cycle'], stim_cycle['n_cycle']
     t_start, on_time = stim_cycle['t_start'], stim_cycle['on_time']
     i_start, i_cycle = stim_cycle['i_start'], stim_cycle['i_cycle']
     dv = dv_n_sigma * np.std(x[i_start:])
+    demean = -np.mean(x[i_start:i_start + n_cycle * i_cycle]) if demean else 0.
+    x += demean
     r_edge = 1000 * t_cycle
+    pad = np.asarray(pad).ravel()
     
     if ax is None:
         _, ax = plt.subplots(1, 1)
-    ax.plot(t[:i_start], x[:i_start] + n_cycle * dv, 'k')
-    ax.annotate('pre stimulus', (max(r_edge, x[i_start]), n_cycle * dv), color='k',
-                fontsize=fontsize, xytext=xytext, textcoords='offset fontsize')
+    pclr = 'k' if color is None else color
+    ax.plot(t[:i_start], x[:i_start] + n_cycle * dv, pclr)
+    ax.annotate('pre stimulus', (max(r_edge, t[i_start]), n_cycle * dv + demean),
+                color=pclr, fontsize=fontsize, xytext=xytext, textcoords='offset fontsize')
     for i in range(n_cycle):
         m = i_start + i * i_cycle
-        offset = (n_cycle - i - 1) * dv
+        offset = (n_cycle - i - 1) * dv + demean
         xx = x[m:m + i_cycle] + offset
-        h = ax.plot(t[:len(xx)], xx)
-        ax.annotate(f'stimulus {i + 1:d}', (r_edge, offset), color=h[0].get_color(),
+        h = ax.plot(t[:len(xx)], xx, color=color)
+        ax.annotate(f'cycle {i + 1:d}', (r_edge, offset), color=h[0].get_color(),
                     fontsize=fontsize, xytext=xytext, textcoords='offset fontsize')
     ax.axvline(on_time * 1000, color='gray', label='stimulus off')
     ax.set_xlim(0, max(1.15 * r_edge, 1000 * t_start))
-    ax.set_ylim(np.array((-1.5, n_cycle + 1.5)) * dv)
+    ax.set_ylim(np.array((-pad[0], n_cycle + pad[-1])) * dv)
     ax.set_xlabel('Time (ms)')
     ax.set_ylabel(var_label)
 
@@ -176,7 +190,6 @@ def fit_fooof(f, pxx, aperiodic_mode='fixed', dB_threshold=3., max_n_peaks=10,
         plt.xlim(np.log10(plt_range) if plt_log else plt_range)
         if figsize:
             plt.gcf().set_size_inches(figsize)
-        plt.show()
     return results, fm
 
 
@@ -209,6 +222,36 @@ def plot_channel_psd(psd, channel_id=None, plt_range=(0, 100.),
                         plot=True, plt_range=plt_range[1], figsize=figsize)
     fig2 = plt.gcf()
     return results, fig1, fig2
+
+
+def plot_fooof(f, pxx, fooof_result, plt_log=False, plt_range=None, plt_db=True, ax=None):
+    full_fit, _, ap_fit = gen_model(f[1:], fooof_result.aperiodic_params,
+                                    fooof_result.gaussian_params, return_components=True)
+    full_fit = np.insert(10 ** full_fit, 0, pxx[0])
+    ap_fit = np.insert(10 ** ap_fit, 0, pxx[0])
+
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+    else:
+        fig = ax.get_figure()
+    plt_range = np.array(f[-1]) if plt_range is None else np.array(plt_range)
+    if plt_range.size == 1:
+        plt_range = [f[1] if plt_log else 0., plt_range.item()]
+    f_idx = (f >= plt_range[0]) & (f <= plt_range[1])
+    f, pxx = f[f_idx], pxx[f_idx]
+    full_fit, ap_fit = full_fit[f_idx], ap_fit[f_idx]
+    if plt_db:
+        pxx, full_fit, ap_fit = [10 * np.log10(x) for x in [pxx, full_fit, ap_fit]]
+    ax.plot(f, pxx, 'k', label='Original')
+    ax.plot(f, full_fit, 'r', label='Full model fit')
+    ax.plot(f, ap_fit, 'b--', label='Aperiodic fit')
+    if plt_log:
+        ax.set_xscale('log')
+    ax.set_xlim(plt_range)
+    ax.legend(loc='upper right', frameon=False)
+    ax.set_xlabel('Frequency (Hz)')
+    ax.set_ylabel('PSD ' + ('dB' if plt_db else r'mV$^2$') + '/Hz')
+    return fig, ax
 
 
 def psd_residual(f, pxx, fooof_result, plot=False, plt_log=False, plt_range=None, ax=None):
@@ -281,7 +324,7 @@ def spectrogram_xarray(x, fs, tseg, axis=-1, tres=np.inf, channel_coords=None):
 
 
 def plot_spectrogram(sxx_xarray, remove_aperiodic=None, log_power=False,
-                     plt_range=None, clr_freq_range=None, ax=None):
+                     plt_range=None, clr_freq_range=None, pad=0.02, ax=None):
     """Plot spectrogram. Determine color limits using value in frequency band clr_freq_range"""
     sxx = sxx_xarray.PSD.values.copy()
     t = sxx_xarray.time.values.copy()
@@ -291,13 +334,16 @@ def plot_spectrogram(sxx_xarray, remove_aperiodic=None, log_power=False,
     if log_power:
         with np.errstate(divide='ignore'):
             sxx = np.log10(sxx)
-        cbar_label += ' log(power)'
+        cbar_label += ' dB' if log_power == 'dB' else ' log(power)'
 
     if remove_aperiodic is not None:
         f1_idx = 0 if f[0] else 1
         ap_fit = gen_aperiodic(f[f1_idx:], remove_aperiodic.aperiodic_params)
         sxx[f1_idx:, :] -= (ap_fit if log_power else 10 ** ap_fit)[:, None]
         sxx[:f1_idx, :] = 0.
+
+    if log_power == 'dB':
+        sxx *= 10
 
     if ax is None:
         _, ax = plt.subplots(1, 1)
@@ -319,7 +365,7 @@ def plot_spectrogram(sxx_xarray, remove_aperiodic=None, log_power=False,
         ax.fill_between(t, coif, step='mid', alpha=0.2)
     ax.set_xlim(t[0], t[-1])
     ax.set_ylim(f[0], f[-1])
-    plt.colorbar(mappable=pcm, ax=ax, label=cbar_label)
+    plt.colorbar(mappable=pcm, ax=ax, label=cbar_label, pad=pad)
     ax.set_xlabel('Time (sec)')
     ax.set_ylabel('Frequency (Hz)')
     return sxx
