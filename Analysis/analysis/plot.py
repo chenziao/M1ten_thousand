@@ -324,7 +324,7 @@ def spectrogram_xarray(x, fs, tseg, axis=-1, tres=np.inf, channel_coords=None):
 
 
 def plot_spectrogram(sxx_xarray, remove_aperiodic=None, log_power=False,
-                     plt_range=None, clr_freq_range=None, pad=0.02, ax=None):
+                     plt_range=None, clr_freq_range=None, pad=0.03, ax=None):
     """Plot spectrogram. Determine color limits using value in frequency band clr_freq_range"""
     sxx = sxx_xarray.PSD.values.copy()
     t = sxx_xarray.time.values.copy()
@@ -377,7 +377,7 @@ ARROWPROPS = dict(shrinkA=0, shrinkB=0, mutation_scale=10)
 def trajectory_pairplot(data, time=None, xlabels=None, ylabels=None,
                         marker_times=[], marker_names=[], marker_props={},
                         traj_props={}, diag_props={}, arrow_props={},
-                        arrow_loc=(0.45, 0.55), figsize=(3, 2.5)):
+                        arrow_loc=(0.45, 0.55), singlefigsize=(3, 2.5)):
     time = next(data.values()).time.values if time is None else np.asarray(time)
     xlabels = list(data.keys()) if xlabels is None else list(xlabels)
     ylabels = xlabels if ylabels is None else list(ylabels)
@@ -410,8 +410,8 @@ def trajectory_pairplot(data, time=None, xlabels=None, ylabels=None,
     arrow_locs = {k: np.interp(arrow_times, time, v) for k, v in data.items()}
 
     nrow, ncol = len(ylabels), len(xlabels)
-    _, axs = plt.subplots(nrow, ncol, squeeze=False,
-                        figsize=(ncol * figsize[0], nrow * figsize[1]))
+    fig, axs = plt.subplots(nrow, ncol, squeeze=False,
+                            figsize=(ncol * figsize[0], nrow * figsize[1]))
     xlim, ylim = np.empty((ncol, 2)), np.empty((nrow, 2))
     xlim[:, 0], xlim[:, 1] = -np.inf, np.inf
     ylim[:, 0], ylim[:, 1] = -np.inf, np.inf
@@ -450,7 +450,7 @@ def trajectory_pairplot(data, time=None, xlabels=None, ylabels=None,
                 axs[i, j].set_xlim(xlim[j])
     axs[0, 0].legend(loc='upper right', framealpha=0.2)
     plt.tight_layout()
-    return axs
+    return fig, axs
 
 
 def plot(choose, spike_file=None, config=None, figsize=(6.4, 4.8)):

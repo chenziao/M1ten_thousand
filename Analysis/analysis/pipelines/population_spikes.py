@@ -127,22 +127,6 @@ def load_trial(trial_name, pop_names, only_id=False):
     return pop_ids, spikes_df, t_start, t_stop
 
 
-def get_trial_label(trial_name):
-    """Convert file name format into labels for demonstration"""
-    trial_label = {}
-    for tr in trial_name:
-        ntr = tr.replace('rand', 'random').replace('div', 'strong')
-        if '_a' in tr:
-            ntr = ntr.split('_')
-            ntr = '_'.join(ntr[:-1]).replace('_a', '_' + ntr[-1])
-        if '_down' in tr:
-            ntr = ntr.replace('_down', '').replace('ramp', 'down')
-        if '_quit' in tr:
-            ntr = ntr.replace('_quit', '').replace('join', 'quit')
-        trial_label[tr] = ntr
-    return trial_label
-
-
 def preprocess(trial_name, fs_ct=400., fs_fr=50., filt_sigma=20.0, overwrite=False):
     """Load spike data from simulation result, preprocess and save outputs
     trial_name: name of simulation trial
