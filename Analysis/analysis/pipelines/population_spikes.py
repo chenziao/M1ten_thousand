@@ -30,25 +30,20 @@ def set_variables(**kwargs):
     for key, value in kwargs.items():
         global_vars[key] = value
     # set up data path
-    global PN_SPK_PATH, ITN_FR_PATH, TSPK_PATH, BIN_SPK_PATH, XCORR_PATH, ENTR_PATH
+    global PN_SPK_PATH, ITN_FR_PATH, TSPK_PATH, BIN_SPK_PATH
+    global XCORR_PATH, LFP_ENTR_PATH, FR_ENTR_PATH
     PN_SPK_PATH = os.path.join(OUTPUT_PATH, 'PN_spikes')
     ITN_FR_PATH = os.path.join(OUTPUT_PATH, 'ITN_fr')
     TSPK_PATH = os.path.join(OUTPUT_PATH, 'spike_times')
     BIN_SPK_PATH = os.path.join(OUTPUT_PATH, 'binned_spikes')
     XCORR_PATH = os.path.join(OUTPUT_PATH, 'wave_fr_xcorr')
-    ENTR_PATH = os.path.join(OUTPUT_PATH, 'lfp_entrainment')
-    if not os.path.isdir(PN_SPK_PATH):
-        os.mkdir(PN_SPK_PATH)
-    if not os.path.isdir(ITN_FR_PATH):
-        os.mkdir(ITN_FR_PATH)
-    if not os.path.isdir(TSPK_PATH):
-        os.mkdir(TSPK_PATH)
-    if not os.path.isdir(BIN_SPK_PATH):
-        os.mkdir(BIN_SPK_PATH)
-    if not os.path.isdir(XCORR_PATH):
-        os.mkdir(XCORR_PATH)
-    if not os.path.isdir(ENTR_PATH):
-        os.mkdir(ENTR_PATH)
+    LFP_ENTR_PATH = os.path.join(OUTPUT_PATH, 'lfp_entrainment')
+    FR_ENTR_PATH = os.path.join(OUTPUT_PATH, 'fr_entrainment')
+    paths = [PN_SPK_PATH, ITN_FR_PATH, TSPK_PATH, BIN_SPK_PATH,
+             XCORR_PATH, LFP_ENTR_PATH, FR_ENTR_PATH]
+    for d in paths:
+        if not os.path.isdir(d):
+            os.mkdir(d)
 
 set_variables()
 
@@ -752,10 +747,10 @@ def get_wave_fr_xcorr(trial_name, wave_kwargs, normalize_lfp=True, normalize_fr=
 
 
 def get_lfp_entrainment(trial_name, wave_kwargs, pop_names, overwrite=False):
-    files = {p: os.path.join(ENTR_PATH, trial_name + '_' + p + '.npz') for p in pop_names}
+    files = {p: os.path.join(LFP_ENTR_PATH, trial_name + '_' + p + '.npz') for p in pop_names}
     writefiles = files.copy() if overwrite else {p: f for p, f in files.items() if not os.path.isfile(f)}
     pops = list(writefiles)
-    wave_file = os.path.join(ENTR_PATH, trial_name + '_wave.nc')
+    wave_file = os.path.join(LFP_ENTR_PATH, trial_name + '_wave.nc')
     waves = list(wave_kwargs['waves'])
     # Get trial info
     if overwrite or not os.path.isfile(wave_file) or pops:

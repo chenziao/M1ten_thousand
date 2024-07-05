@@ -19,21 +19,34 @@ def principal_angles(A, B, rowspace=False, grassmann_distance=True):
     return (P_angles, dist) if grassmann_distance else P_angles
 
 
-def phase_locking_value(phase, unbiased=True):
-    """Calculate phase locking value given list of phases of each unit"""
-    single = len(phase) and isinstance(phase[0], float)
+def phase_locking_value(phase, unbiased=True, axis=-1):
+    """Calculate phase locking value given list of phases of each unit
+    phase: phase values of a single unit or list of phase values of units
+        Phase values of each unit can be nd-array where spikes are along
+        the specified axis. Arrays for different units must have the same
+        shape except the specified axis.
+    """
+    single = isinstance(phase[0], float)
     if single:
         phase = [phase]
-    N = np.array([len(pha) for pha in phase])
-    reslt = np.array([np.sum(np.exp(1j * np.asarray(pha))) for pha in phase])
+    N = []
+    resultant = []
+    for pha in phase:
+        pha = np.asarray(pha)
+        shape = pha.shape
+        N.append(shape[axis])
+        resultant.append(np.sum(np.exp(1j * pha), axis=axis))
+    N = np.reshape(N, [-1] + [1] * (len(shape) - 1))
+    resultant = np.stack(resultant)
+    shape = list(shape)
+    shape.pop(axis)
+    plv = np.zeros([N.size] + shape)
     idx = np.nonzero(N > 1)[0]
-    plv = np.zeros(len(phase))
     if unbiased:
-            plv2 = (reslt[idx] * reslt[idx].conj()).real / N[idx]
-            plv[idx] = (np.fmax(plv2 - 1, 0) / (N[idx] - 1)) ** 0.5
+        plv2 = (resultant[idx] * resultant[idx].conj()).real / N[idx]
+        plv[idx] = (np.fmax(plv2 - 1, 0) / (N[idx] - 1)) ** 0.5
     else:
-        plv[idx] = np.abs(reslt[idx]) / N[idx]
+        plv[idx] = np.abs(resultant[idx]) / N[idx]
     if single:
         plv = plv[0]
     return plv
-

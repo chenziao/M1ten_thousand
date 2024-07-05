@@ -754,7 +754,7 @@ def build_input(t_stop=T_STOP, t_start=T_START, n_assemblies=N_ASSEMBLIES,
     PN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to PNs
     ITN_baseline_fr = 20.0  # Hz. Firing rate for baseline input to ITNs
     FSI_baseline_fr = None  # 200 Hz. If not None, use modified fr for FSI
-    LTS_baseline_fr = 60.0  # 60 Hz. If not None, use modified fr for LTS
+    LTS_baseline_fr = None  # 60 Hz. If not None, use modified fr for LTS
     ITN_baseline_burst = True  # whether use burst input like short/long or constant
     Thal_burst_fr = 50.0 if burst_fr is None else burst_fr  # Hz. for thalamus burst input
     Thal_const_fr = 10.0 if burst_fr is None else burst_fr  # Hz. for thalamus constant input
