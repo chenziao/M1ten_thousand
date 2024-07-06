@@ -108,7 +108,7 @@ def get_trial_info(TRIAL_PATH):
     return stim_type, paths, stim_info, config_hp
 
 
-def get_trial_label(trial_name):
+def get_trial_label(trial_name, dlm=''):
     """Convert file name format into labels for demonstration"""
     single = isinstance(trial_name, str)
     if single:
@@ -120,9 +120,11 @@ def get_trial_label(trial_name):
             ntr = ntr.split('_')
             ntr = '_'.join(ntr[:-1]).replace('_a', '_' + ntr[-1])
         if '_down' in tr:
-            ntr = ntr.replace('_down', '').replace('ramp', 'down')
+            ntr = ntr.replace('_down', '').replace('ramp', 'ramp down')
         if '_quit' in tr:
             ntr = ntr.replace('_quit', '').replace('join', 'quit')
+        if dlm:
+            ntr = ntr.replace('_', dlm)
         trial_label[tr] = ntr
     if single:
         trial_label = trial_label[trial_name[0]]
