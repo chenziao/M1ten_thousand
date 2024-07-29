@@ -167,3 +167,58 @@ def load_ecp_to_xarray(ecp_file, demean=False):
     if demean:
         ecp -= ecp.mean(dim='time')
     return ecp
+
+
+def get_assemblies(input_path, isstandard=True, stim_setting=None, distinguish_assy=False):
+    """Get assemblies used for simulation
+    input_path: input files path
+    isstandard, stim_setting: stimulus type information
+    distinguish_assy: whether distinguish unstimulated assemblies into different groups
+    """
+    # node ids in assemblies
+    from build_input import input_pairs_from_file
+    _, Assembly_ids = input_pairs_from_file(os.path.join(input_path, 'Assembly_ids.csv'))
+    n_assy = len(Assembly_ids)
+    assy_ids = {a: ids for a, ids in enumerate(Assembly_ids)}
+
+    # get assembly groups if obtained from intrinsic assemblies
+    div_ids_file = os.path.join(input_path, 'Division_ids.csv')
+    isdivision = os.path.isfile(div_ids_file)
+    if isdivision:
+        div_id = pd.read_csv(div_ids_file, index_col='division_id')['assembly_id']
+        assy_div = {v: div_id[div_id == v].index.tolist() for v in div_id.unique()}
+        assy_ids_disp = [a for ids in assy_div.values() for a in ids]
+    else:
+        assy_div = {}
+        assy_ids_disp = list(assy_ids)
+
+    # name for PN group that receive common external input
+    prefix = 'strong' if isdivision else 'random'
+    assy_names = {a: f'{prefix:s} {a:d}' for a in assy_ids}
+    assy_names_disp = [assy_names[a] for a in assy_ids_disp]
+
+    # indices of assemblies being stimulated
+    assy_stim = list(range(n_assy)) if isstandard \
+        else stim_setting['setting']['assembly_index']
+
+    # collect assemblies not stimuluted
+    rest_assy = assy_ids.keys() - set(assy_stim)
+    rest_id = -max(n_assy, len(assy_div) + 1)  # label for rest assembly
+    if rest_assy:
+        def move_to_rest(assy, idx, name):
+            nonlocal rest_assy
+            assy_ids[idx] = sorted(n for a in assy for n in assy_ids.pop(a))
+            assy_names[idx] = name  # idx value has no meaning, just an index
+            rest_assy -= assy
+        if isdivision:
+            for i in div_id[assy_stim].unique():  # intrinsic assemblies being stimulated
+                # division assemblies in the same intrinsic assembly but not stimulated
+                move_to_rest(set(assy_div[i]) & rest_assy, -1 -i, f'rest in {i}')
+        move_to_rest(rest_assy, rest_id, 'rest')  # remaining assemblies not stimulated
+    rest_assy_ids = [a for a in assy_ids if a < 0]  # rest assemblies to show
+    if rest_assy_ids and not distinguish_assy:
+        move_to_rest(set(rest_assy_ids), rest_id, 'rest')
+        rest_assy_ids = [rest_id]
+
+    assy_info = Assembly_ids, isdivision, assy_div, assy_ids_disp, assy_names_disp, rest_id
+    return assy_ids, assy_names, assy_stim, rest_assy_ids, assy_info

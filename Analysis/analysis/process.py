@@ -500,3 +500,12 @@ def get_spike_phase(phase, time, tspk, axis=-1, min_pha=0.):
         spk_pha = spk_pha[0]
     return spk_pha
 
+
+def ind2seg(ind):
+    """Convert boolean vector to indices of segment edges.
+    Return (n, 2) array of indices segment left and right edges,
+    where each row can be used to slice a segment.
+    """
+    ind = np.asarray(ind, dtype=bool)
+    seg_edge = np.nonzero(np.diff(np.insert([False, False], 1, ind)))[0].reshape(-1, 2)
+    return seg_edge

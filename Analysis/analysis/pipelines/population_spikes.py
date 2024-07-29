@@ -10,7 +10,7 @@ from scipy.interpolate import interp1d
 from scipy.sparse import csr_matrix
 from functools import partial
 
-from analysis import  plot, utils, process
+from analysis import  plot, utils, process, metric
 from build_input import get_populations, t_start
 
 
@@ -119,7 +119,7 @@ def load_trial(trial_name, pop_names, only_id=False):
     t_start = stim_params.get('t_start', T_START)
     # Load trial spike data
     spikes_df = utils.load_spikes_to_df(SPIKE_FILE, network_name)
-    return pop_ids, spikes_df, t_start, t_stop
+    return pop_ids, spikes_df, t_start, t_stop, trial_info
 
 
 def preprocess(trial_name, fs_ct=400., fs_fr=50., filt_sigma=20.0, overwrite=False):
@@ -137,7 +137,7 @@ def preprocess(trial_name, fs_ct=400., fs_fr=50., filt_sigma=20.0, overwrite=Fal
         return
     pop_names = PN_pop_names * process_PN + ITN_pop_names * process_ITN
     # Load trial info and data
-    pop_ids, spikes_df, t_start, t_stop = load_trial(trial_name, pop_names)
+    pop_ids, spikes_df, t_start, t_stop, _ = load_trial(trial_name, pop_names)
 
     # Parameters
     time_ct_edge = np.linspace(0, 1000 * t_stop, int(t_stop * fs_ct), endpoint=False)
@@ -554,7 +554,7 @@ def get_pop_stp_info(pre_pop_names, ITN_pop_names):
             tau_f=syn_p['Fac'], tau_d=syn_p['Dep'], U=syn_p['Use'])
 
     # Get node ids of presynaptic cell types
-    pre_ids, _, _, _ = load_trial('baseline', pre_pop_names)
+    pre_ids, _ = load_trial('baseline', pre_pop_names, only_id=True)
     pre_ids_idx = {}
     for p, ids in pre_ids.items():
         ids = sorted(ids)
@@ -578,7 +578,7 @@ def setup_pop_stp(trial_name, pop_stp_info, attrs, overwrite=False):
 
     # load spike data
     if process_tspk or process_bin_spk:
-        _, spk_df, _, t_stop = load_trial(trial_name, pre_ids_idx)
+        _, spk_df, _, t_stop, _ = load_trial(trial_name, pre_ids_idx)
         spk_df = spk_df.set_index('node_ids').rename(columns={'timestamps': 'tspk'})
 
     # get spike times for each cell type
@@ -693,7 +693,7 @@ def get_wave_fr_xcorr(trial_name, wave_kwargs, normalize_lfp=True, normalize_fr=
         if normalize_lfp or normalize_fr:
             filt_sigma = ITN_fr.gauss_filt_sigma / dt
         # Get waves in population firing rate
-        pop_ids, spikes_df, t_start, t_stop = load_trial(trial_name, sum(pop_groups.values(), []))
+        pop_ids, spikes_df, t_start, t_stop, _ = load_trial(trial_name, sum(pop_groups.values(), []))
         pop_ids = {grp: sum([pop_ids[p] for p in pop], []) for grp, pop in pop_groups.items()}
         time_edge = time - dt / 2
         pop_rspk = process.group_spike_rate_to_xarray(spikes_df, time_edge, pop_ids, group_dims='population')
@@ -754,7 +754,7 @@ def get_lfp_entrainment(trial_name, wave_kwargs, pop_names, overwrite=False):
     waves = list(wave_kwargs['waves'])
     # Get trial info
     if overwrite or not os.path.isfile(wave_file) or pops:
-        pop_ids, spk_df, t_start, t_stop = load_trial(trial_name, pop_names)
+        pop_ids, spk_df, t_start, t_stop, _ = load_trial(trial_name, pop_names)
         t_start, t_stop = t_start * 1000, t_stop * 1000
     # Get waves in LFP
     if overwrite or not os.path.isfile(wave_file):
@@ -788,3 +788,182 @@ def get_lfp_entrainment(trial_name, wave_kwargs, pop_names, overwrite=False):
             ap = np.array([f['amp'][i_wave], f['pha'][i_wave]])
             amp_pha.append(ap)
     return amp_pha, lfp_waves
+
+
+def get_stim_windows(stim_params, t_stop=None, win_extend=0., isbaseline=False, only_ramp=True):
+    """Time windows of stimulus cycles
+    stim_params: dictionary returned in trial information
+    win_extend: sec. Extend window after stimulus off
+    only_ramp: whether get windows of only ramp durations for non-standard stimulus types
+    Return: 2d-array of time windows, each row is the start/end (ms) of a cycle
+    """
+    t_start = stim_params.get('t_start', T_START)
+    if t_stop is None:
+        t_stop = stim_params['t_stop']
+    if isbaseline:
+        on_time, off_time = t_stop - t_start - win_extend, win_extend
+    else:
+        on_time, off_time = stim_params['on_time'], stim_params['off_time']
+        if only_ramp:
+            # Adjust to extract only ramping duration
+            ramp_on_time = stim_params.get('ramp_on_time', 0.)
+            ramp_off_time = stim_params.get('ramp_off_time', on_time)
+            t_start += ramp_on_time
+            on_time = ramp_off_time - ramp_on_time
+            off_time += stim_params['on_time'] - on_time
+    windows = 1000. * process.get_stim_windows(
+        on_time, off_time, t_start, t_stop, win_extend=win_extend)
+    return windows, (on_time, off_time, t_start, t_stop)
+
+
+def get_plv_population_wave(trial_name, wave_kwargs, fs=400., pop_wave=ITN_pop_names,
+                            only_ramp=True, win_extend=0., significant_duration=True,
+                            sigdur_kwargs={}, verbose=True):
+    """Get phase locking value of all units to waves in population firing rate
+    wave_kwargs: keyword arguments for calculating wave amplitude
+    fs: sampling frequency (Hz).
+    pop_wave: dict {name: [population names]}. target populations to get waves
+    only_ramp, win_extend: `get_stim_windows` parameters
+    significant_duration: whether select durations with significant wave amplitude
+    sigdur_kwargs: parameters for selecting significant durations of wave amplitude
+    """
+    # Get trial info and spike data
+    if isinstance(pop_wave, list):
+        pop_wave = dict(zip(pop_wave, pop_wave))
+    pop_ids, spikes_df, t_start, t_stop, trial_info = load_trial(trial_name, plot.pop_names)
+    isbaseline, isstandard = trial_info[0][1], trial_info[0][2]
+    INPUT_PATH = trial_info[1][0]
+    stim_setting, stim_params = trial_info[2][1], trial_info[2][2]
+
+    # Get windows of stimulus cycles
+    windows, (_, _, t_start, t_stop) = get_stim_windows(stim_params,
+        t_stop=t_stop, win_extend=win_extend, isbaseline=isbaseline, only_ramp=only_ramp)
+
+    # Get population firing rate
+    time = np.linspace(0, 1000 * t_stop, int(t_stop * fs), endpoint=False)
+    pop_rspk = process.group_spike_rate_to_xarray(spikes_df, time,
+        {k: pop_ids[p] for k, p in pop_wave.items() if not isinstance(p, list)}, group_dims='population')
+
+    # Get composed populations
+    comp_rspk = []
+    for k, pops in pop_wave.items():
+        if isinstance(pops, list):
+            if all([p in pop_rspk.population for p in pops]):
+                # combine to get composed population
+                comp_rspk.append(process.combine_spike_rate(pop_rspk, dim='population')\
+                    .expand_dims(dim={'population': [k]}))
+            else:
+                comp_rspk.append(process.group_spike_rate_to_xarray(spikes_df, time,
+                    {k: np.sort(np.concatenate([pop_ids[p] for p in pops]))}, group_dims='population'))
+    pop_rspk = xr.concat([pop_rspk] + comp_rspk, dim='population')
+
+    # Get waves in population firing rate 
+    pop_waves = process.get_waves(pop_rspk.spike_rate, fs=pop_rspk.fs, component='both',
+                                **wave_kwargs).rename(population='wave_population')
+
+    # Get significant duration of waves
+    if significant_duration:
+        if verbose:
+            print(trial_name)
+        wave_seg, sigdur_kwargs = get_wave_significant_duration(
+            pop_rspk, pop_waves, windows, t_start=t_start, verbose=verbose, **sigdur_kwargs)
+
+    # Population groups for PLV (PN assemblies, FSI, LTS)
+    assy_ids = utils.get_assemblies(INPUT_PATH, isstandard=isstandard,
+        stim_setting=stim_setting, distinguish_assy=False)[0]
+    PN_names = xr.DataArray([f'PN_{a:d}' for a in assy_ids], coords={'assy_id': list(assy_ids)})
+    grp_ids = {**dict(zip(PN_names.values, assy_ids.values())), **{p: pop_ids[p] for p in ITN_pop_names}}
+    grp_ids = {p: xr.DataArray(ids, dims=p + '_units') for p, ids in grp_ids.items()}
+    unit_ids = np.sort(np.concatenate([np.asarray(ids, dtype=int) for ids in grp_ids.values()]))
+
+    # Calculate PLV
+    durations = {}
+    pop_pha = pop_waves.sel(component='pha')
+    if significant_duration:
+        axis = pop_pha.isel(wave=0).dims.index('time')
+        pop_plv = []
+        for w in pop_pha.wave.values:
+            seg_wins = np.array([pop_pha.time[[i0, i1]] for i0, i1 in wave_seg[w]])
+            durations[w] = seg_wins
+            seg_wins = np.reshape(windows[:, 0].reshape(-1, 1, 1) + seg_wins, (-1, 2))
+            tspk = process.get_windowed_spikes(spikes_df, seg_wins, unit_ids)
+            pop_plv.append(metric.phase_locking_value(process.get_spike_phase(
+                pop_pha.sel(wave=w), pop_pha.time, tspk, axis=axis)))
+        pop_plv = np.stack(pop_plv, axis=pop_pha.dims.index('wave') + 1)
+    else:
+        axis = pop_pha.dims.index('time')
+        tspk = process.get_windowed_spikes(spikes_df, windows, unit_ids)
+        pop_plv = metric.phase_locking_value(process.get_spike_phase(pop_pha, pop_pha.time, tspk, axis=axis))
+
+    # Save PLV results
+    pop_plv = xr.DataArray(pop_plv, coords=dict(
+        unit_id=unit_ids, **{k: pop_pha.coords[k] for k in pop_pha.dims if k != 'time'}))
+    plv_ds = xr.Dataset({'PLV': pop_plv, 'PN_names': PN_names, **grp_ids})
+
+    file = trial_name + ('_sigdur' if significant_duration else '') + '.nc'
+    plv_ds.to_netcdf(os.path.join(FR_ENTR_PATH, file))
+
+    kwargs = dict(wave_kwargs=wave_kwargs, fs=fs, pop_wave=pop_wave,
+        only_ramp=only_ramp, win_extend=win_extend,
+        significant_duration=significant_duration, sigdur_kwargs=sigdur_kwargs
+    )
+    return plv_ds, durations, kwargs
+
+
+def get_wave_significant_duration(pop_rspk, pop_waves, windows, t_start=T_START,
+        verbose=True, wave_pop={'gamma': 'FSI', 'beta': 'LTS'},
+        fr_indicator=True, filt_sigma=20., normalize_baseline=True, 
+        baseline_fr=[7.5, 5.0], baseline_amp=[1.3868426, 0.56402801],
+        choose_dominating=False, threshold={'gamma': 0.8, 'beta': 1.2}):
+    """Get significant duration of waves
+    wave_pop: dict. select population for getting significant wave amplitude
+    fr_indicator: whether use ITN firing rate or wave amplitude as indicator
+    filt_sigma: firing rate Gaussian filer sigma (ms)
+    normalize_baseline: whether normalize indicator by baseline, otherwise by trial average
+    baseline_fr: list of baseline firing rate
+    baseline_amp: list of baseline wave amplitude
+    choose_dominating: whether select duration by single winner wave, otherwise by threshold crossing
+    threshold: dict. threshold on indicator for selecting significant duration
+    """
+    waves = pop_waves.wave.values
+    wave_pop = {w: wave_pop[w] for w in waves}
+    sigma = filt_sigma * pop_rspk.fs / 1000
+    # ITN firing rate wave amplitude
+    wave_amp = xr.concat([pop_waves.sel(wave=w, wave_population=p, component='amp') \
+        for w, p in wave_pop.items()], dim='wave')
+    if fr_indicator:
+        # ITN firing rate
+        rspk_filt = xr.DataArray([gaussian_filter(pop_rspk.spike_rate.sel(population=p), sigma) \
+            for p in wave_pop.values()], coords={'wave': waves, 'time': pop_rspk.time})
+        # Get wave amplitude indicator
+        wave_indicator = rspk_filt.copy()
+    else:
+        wave_indicator = wave_amp.copy()
+
+    if normalize_baseline:
+        baseline_norm_factor = baseline_fr if fr_indicator else baseline_amp
+        wave_indicator /= xr.DataArray(baseline_norm_factor, coords={'wave': waves})
+    else:
+        wave_indicator /= wave_indicator.sel(time=slice(1000 * t_start, None)).mean(dim='time')
+
+    # Average over stimulus cycles
+    wave_indicator_avg = process.windowed_xarray(wave_indicator, windows, new_coord_name='cycle').mean(dim='cycle')
+    if choose_dominating:
+        # Dominating wave
+        main_wave = wave_indicator_avg.argmax(dim='wave')
+        wave_seg = {w: process.ind2seg(main_wave==i) for i, w in enumerate(waves)}
+    else:
+        # Significant wave
+        wave_seg = {w: process.ind2seg(wave_indicator_avg.sel(wave=w).values > threshold[w]) for w in waves}
+
+    if verbose:
+        for w, segs in wave_seg.items():
+            dur = 100 * segs / wave_indicator_avg.time.size
+            print(w + ' durations: ' + ', '.join([f'{d0:.0f} - {d1:.0f} %' for d0, d1 in dur]))
+
+    sigdur_kwargs = dict(wave_pop=wave_pop, fr_indicator=fr_indicator,
+        filt_sigma=filt_sigma, normalize_baseline=normalize_baseline,
+        baseline_fr=baseline_fr, baseline_amp=baseline_amp,
+        choose_dominating=choose_dominating, threshold=threshold
+    )
+    return wave_seg, sigdur_kwargs
