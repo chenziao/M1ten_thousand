@@ -81,8 +81,13 @@ def get_trial_info(TRIAL_PATH):
     isbaseline = stimulus_type == 'baseline' or stimulus_type == 'const'
     isstandard = isbaseline or stimulus_type == 'short' or stimulus_type == 'long'
 
-    result_config_file = os.path.join(TRIAL_PATH, 'config_no_STP.json'
-                                      if 'no_STP' in TRIAL_NAME else config)
+    if '_no_STP' in TRIAL_NAME:
+        result_config_file = 'config_no_STP.json'
+    elif '_syn' in TRIAL_NAME:
+        result_config_file = 'config_scaled_syn.json'
+    else:
+        result_config_file = config
+    result_config_file = os.path.join(TRIAL_PATH, result_config_file)
     if not os.path.isfile(result_config_file):
         result_config_file = os.path.join(os.path.split(result_config_file)[0],
                                           STIMULUS_CONFIG['else'])
