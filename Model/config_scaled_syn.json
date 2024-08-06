@@ -1,4 +1,4 @@
 {
   "network": "circuit_config_scaled_syn.json",
-  "simulation": "simulation_config_short.json"
+  "simulation": "simulation_config_long.json"
 }
